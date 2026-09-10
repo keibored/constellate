@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/index.css';
 import './styles/room.css';
+import './styles/presence.css';
 
 if (window.location.pathname === '/') {
   window.history.replaceState(null, '', `/room/demo${window.location.search}${window.location.hash}`);

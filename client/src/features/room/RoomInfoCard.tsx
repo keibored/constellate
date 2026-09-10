@@ -1,8 +1,9 @@
 import { Check, Copy, Pencil, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { Room } from '../../types/room';
+import type { MemberPresence } from '../../../../shared/presence';
 
-interface RoomInfoCardProps { room: Room; onRename: (name: string) => void; onInvite: () => void; copied: boolean }
+interface RoomInfoCardProps { room: Omit<Room, 'members'> & { members: MemberPresence[] }; onRename: (name: string) => void; onInvite: () => void; copied: boolean }
 
 export function RoomInfoCard({ room, onRename, onInvite, copied }: RoomInfoCardProps) {
   const [editing, setEditing] = useState(false);
