@@ -20,7 +20,6 @@ export function RoomPage({ roomId }: { roomId: string }) {
   const { members, connection, error, updateStatus, statusError } = useRoomPresence(roomId, identity);
   const room = { ...mockRoom, id: roomId, name: roomName, code: `r/${roomId}`, members };
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [minutes, setMinutes] = useState(25);
   const [dimmed, setDimmed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -39,13 +38,13 @@ export function RoomPage({ roomId }: { roomId: string }) {
       <Navbar onSettings={() => setSettingsOpen(true)} dimmed={dimmed} onToggleLights={() => setDimmed(!dimmed)} />
       <main className="room-layout">
         <div className="room-column"><div className="space-heading"><span><span aria-hidden="true">✧</span> A SPACE TO FOCUS, TOGETHER</span><span className="space-heading-right">take a breath. you're here.</span></div>
-          <RoomScene members={members}><RoomInfoCard room={room} onRename={setRoomName} onInvite={copyLink} copied={copied} /><FocusTimer key={minutes} minutes={minutes} onSettings={() => setSettingsOpen(true)} /><TaskBoard /></RoomScene>
+          <RoomScene members={members}><RoomInfoCard room={room} onRename={setRoomName} onInvite={copyLink} copied={copied} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard /></RoomScene>
           <div className="room-bottom-caption"><span><span className="status-dot status-dot--coding" />a little company goes a long way</span><span>same stars, different desks <span aria-hidden="true">✦</span></span></div>
         </div>
         <aside className="room-sidebar" aria-label="Room companions"><MembersPanel members={members} currentUserId={identity?.userId} connection={connection} error={error} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><ReactionsPanel /><EncouragementCard /></aside>
       </main>
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>
-      <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} minutes={minutes} onMinutesChange={setMinutes} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} />
+      <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} />
       {!identity && <JoinRoomDialog roomName={room.name} onJoin={setIdentity} />}
       {copied && <div className="toast" role="status"><Check size={17} />Room link copied</div>}
       {copyFallback && <div className="copy-fallback" role="status"><label htmlFor="room-link"><Copy size={16} />Copy this room link</label><input id="room-link" readOnly value={roomUrl} onFocus={(event) => event.target.select()} /><button className="icon-button" aria-label="Close room link" onClick={() => setCopyFallback(false)}><X size={16} /></button></div>}

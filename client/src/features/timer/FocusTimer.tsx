@@ -1,30 +1,22 @@
 import { Pause, Play, RotateCcw, Settings2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import type { ConnectionStatus } from '../presence/useRoomPresence';
+import { useRoomTimer } from './useRoomTimer';
 
-interface FocusTimerProps { minutes: number; onSettings: () => void }
+interface FocusTimerProps { roomId: string; connection: ConnectionStatus; onSettings: () => void }
 
-export function FocusTimer({ minutes, onSettings }: FocusTimerProps) {
-  const [remaining, setRemaining] = useState(minutes * 60);
-  const [endsAt, setEndsAt] = useState<number | null>(null);
-  useEffect(() => {
-    if (endsAt === null) return;
-    const tick = () => { const next = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)); setRemaining(next); if (next === 0) setEndsAt(null); };
-    tick();
-    const interval = window.setInterval(tick, 250);
-    return () => window.clearInterval(interval);
-  }, [endsAt]);
-  const reset = () => { setEndsAt(null); setRemaining(minutes * 60); };
-  const toggle = () => {
-    if (endsAt !== null) { setRemaining(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))); setEndsAt(null); }
-    else { const seconds = remaining || minutes * 60; setRemaining(seconds); setEndsAt(Date.now() + seconds * 1000); }
-  };
-  const time = `${Math.floor(remaining / 60).toString().padStart(2, '0')}:${(remaining % 60).toString().padStart(2, '0')}`;
+export function FocusTimer({ roomId, connection, onSettings }: FocusTimerProps) {
+  const timer = useRoomTimer(roomId, connection);
+  const phase = timer.state?.phase === 'shortBreak' ? 'Break' : 'Focus';
+  const running = timer.state?.status === 'running';
+  const paused = timer.state?.status === 'paused';
+  const control = running ? timer.pause : paused ? timer.resume : timer.start;
+  const note = timer.error ?? (connection === 'reconnecting' ? 'Reconnecting to the room…' : !timer.state ? 'Join the room to focus together' : timer.seconds === 0 ? 'A new phase is on its way…' : phase === 'Break' ? 'a little room to breathe' : 'one thing at a time');
   return (
-    <section className="focus-timer" aria-label="Focus timer">
-      <div className="timer-heading"><span className="tiny-star">✦</span><h2>Focus</h2><span className="tiny-star">✦</span></div>
-      <div className="timer-digits" role="timer" aria-label={`${Math.floor(remaining / 60)} minutes, ${remaining % 60} seconds`}>{time}</div>
-      <div className="timer-controls"><button className="icon-button" aria-label="Reset focus timer" onClick={reset}><RotateCcw size={16} /></button><button className="primary-button timer-start" onClick={toggle}>{endsAt !== null ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}{endsAt !== null ? 'Pause' : 'Start'}</button><button className="icon-button" aria-label="Timer settings" onClick={onSettings}><Settings2 size={16} /></button></div>
-      <p className="timer-note" aria-live="polite">{remaining === 0 ? 'You did it. Take a little break ♡' : 'one thing at a time'}</p>
+    <section className="focus-timer" aria-label="Shared Pomodoro timer" data-phase={timer.state?.phase} data-status={timer.state?.status} data-revision={timer.state?.revision}>
+      <div className="timer-heading"><span className="tiny-star">✦</span><h2>{phase}</h2><span className="tiny-star">✦</span></div>
+      <div className="timer-digits" role="timer" aria-label={timer.state ? `${Math.floor(timer.seconds / 60)} minutes, ${timer.seconds % 60} seconds` : 'Waiting for room timer'}>{timer.formattedTime}</div>
+      <div className="timer-controls"><button className="icon-button" aria-label="Reset focus timer" disabled={!timer.canControl} onClick={timer.reset}><RotateCcw size={16} /></button><button className="primary-button timer-start" disabled={!timer.canControl} aria-busy={timer.pending} onClick={control}>{running ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}{running ? 'Pause' : paused ? 'Resume' : 'Start'}</button><button className="icon-button" aria-label="Timer settings" onClick={onSettings}><Settings2 size={16} /></button></div>
+      <p className="timer-note" aria-live="polite">{note}</p>
     </section>
   );
 }
