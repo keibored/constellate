@@ -102,6 +102,7 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     };
     const onRoomError = ({ message, operation }: RoomError) => {
       if (operation === 'status:update') { setStatusError(message); return; }
+      if (operation?.startsWith('timer:')) return;
       setError(message);
       setConnection('error');
     };

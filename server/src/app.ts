@@ -10,6 +10,6 @@ export function createAppServer(allowedOrigins: string[], graceMs?: number) {
   app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
 
   const httpServer = createServer(app);
-  const { io, presence } = attachRoomSockets(httpServer, allowedOrigins, graceMs);
-  return { httpServer, io, presence };
+  const { io, presence, timers } = attachRoomSockets(httpServer, allowedOrigins, graceMs);
+  return { httpServer, io, presence, timers };
 }

@@ -53,6 +53,10 @@ export class RoomPresence {
     return entry.member;
   }
 
+  hasSocket(roomId: string, userId: string, socketId: string): boolean {
+    return this.rooms.get(roomId)?.get(userId)?.sockets.has(socketId) ?? false;
+  }
+
   leave(roomId: string, userId: string, socketId: string, immediate = false) {
     const entry = this.rooms.get(roomId)?.get(userId);
     if (!entry || !entry.sockets.delete(socketId) || entry.sockets.size) return;

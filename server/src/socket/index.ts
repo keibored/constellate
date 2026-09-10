@@ -1,7 +1,9 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents, RoomResult } from '../../../shared/presence.js';
+import type { ClientToServerEvents, ServerToClientEvents, RoomResult, RoomError } from '../../../shared/presence.js';
+import type { TimerAction } from '../../../shared/timer.js';
 import { RoomPresence } from './roomPresence.js';
+import { RoomTimer } from './roomTimer.js';
 import { parseJoin, parseStatusUpdate, readRoomId } from './validation.js';
 
 interface SocketData { membership?: { roomId: string; userId: string } }
@@ -18,9 +20,10 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
   const presence = new RoomPresence((roomId, userId) => {
     io.to(channel(roomId)).emit('presence:left', { roomId, userId });
   }, graceMs);
+  const timers = new RoomTimer(state => io.to(channel(state.roomId)).emit('timer:state', state));
 
   io.on('connection', socket => {
-    const fail = (message: string, acknowledge?: (result: RoomResult) => void, operation?: 'status:update') => {
+    const fail = (message: string, acknowledge?: (result: RoomResult) => void, operation?: RoomError['operation']) => {
       socket.emit('room:error', { message, ...(operation ? { operation } : {}) });
       if (typeof acknowledge === 'function') acknowledge({ ok: false, error: message });
     };
@@ -46,6 +49,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       socket.data.membership = { roomId: join.roomId, userId: join.user.id };
       const { member, changed } = presence.join(join.roomId, join.user, socket.id);
       socket.emit('presence:list', { roomId: join.roomId, members: presence.list(join.roomId) });
+      socket.emit('timer:state', timers.current(join.roomId));
       if (changed) socket.to(channel(join.roomId)).emit('presence:joined', { roomId: join.roomId, member });
       if (typeof acknowledge === 'function') acknowledge({ ok: true });
     });
@@ -72,9 +76,25 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       if (typeof acknowledge === 'function') acknowledge({ ok: true });
     });
 
+    for (const action of ['start', 'pause', 'resume', 'reset', 'sync'] as const satisfies readonly TimerAction[]) {
+      socket.on(`timer:${action}`, (payload: unknown, acknowledge) => {
+        const roomId = readRoomId(payload);
+        if (!roomId) { fail('A valid room ID is required for the timer.', acknowledge, `timer:${action}`); return; }
+        const current = socket.data.membership;
+        if (current?.roomId !== roomId || !presence.hasSocket(roomId, current.userId, socket.id)) {
+          fail('Join this room before controlling its timer.', acknowledge, `timer:${action}`);
+          return;
+        }
+        const result = timers.apply(roomId, action);
+        // Changes are broadcast once by RoomTimer; sync/no-op replies go only to the requester.
+        if (!result.changed) socket.emit('timer:state', result.state);
+        if (typeof acknowledge === 'function') acknowledge({ ok: true });
+      });
+    }
+
     socket.on('disconnect', () => leaveCurrent(false));
   });
 
-  httpServer.on('close', () => presence.dispose());
-  return { io, presence };
+  httpServer.on('close', () => { presence.dispose(); timers.dispose(); });
+  return { io, presence, timers };
 }
