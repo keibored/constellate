@@ -2,7 +2,7 @@
 
 A cozy shared study room built with React, TypeScript, Express, and Socket.IO.
 
-The current real-time milestone covers anonymous room entry, live presence, and live member statuses. Rooms are created in memory when their first member joins. `/room/demo` and `/room/stellar-fox-27` use the same reusable route. Room IDs accept 1–64 letters, numbers, hyphens, or underscores, starting with a letter or number.
+The current real-time milestone covers anonymous room entry, live presence, live member statuses, and one shared Pomodoro timer per room. Rooms are created in memory when their first member joins. `/room/demo` and `/room/stellar-fox-27` use the same reusable route. Room IDs accept 1–64 letters, numbers, hyphens, or underscores, starting with a letter or number.
 
 ## Run locally
 
@@ -30,7 +30,19 @@ Defaults work without environment files. To customize them, copy `client/.env.ex
 - `room:error` reports malformed payloads. Status errors carry `operation: 'status:update'` so they do not mark a healthy room connection as failed. Typed join/leave/status acknowledgements return `{ ok: true }` or `{ ok: false, error }`; raw clients without an acknowledgement are also handled safely.
 - All members appear in the sidebar; only the first three populate the fixed desks. Empty desks retain their artwork. Desk position, avatar, and user identity are separate.
 
-This is anonymous, single-server, in-memory presence. A server restart clears rooms, and connected clients rejoin automatically. Existing timer, task, reaction, and room-title controls remain local demo behavior. No database, authentication, synchronized timers, shared tasks, or live reactions are included.
+This is anonymous, single-server, in-memory state. A server restart clears rooms, remembered statuses and timers; connected clients rejoin automatically. Task, reaction, and room-title controls remain local demo behavior. No database, authentication, shared tasks, or live reactions are included.
+
+## Shared Pomodoro timer
+
+- `shared/timer.d.ts` describes `RoomTimerState`: `phase` (`focus` or `shortBreak`), `status` (`idle`, `running`, `paused`), `durationMs`, `remainingMs`, `startedAt`, `endsAt`, and `revision`. Snapshots also include `roomId` and `serverNow`.
+- `server/src/socket/roomTimer.ts` lazily creates each timer at **Focus / 25:00 / idle**. Timers remain in memory when everyone leaves so returning members recover the ongoing session. Only a server restart discards them.
+- Clients request `timer:start`, `timer:pause`, `timer:resume`, `timer:reset`, or `timer:sync`, each with `{ roomId }`. The server verifies both socket membership metadata and the user's active socket Set. Malformed or unauthorized requests receive a failed acknowledgement and a `room:error` tagged with the timer operation; they cannot disrupt presence.
+- For a running timer, each snapshot calculates `Math.max(0, endsAt - Date.now())`. Start/resume sets the server timestamps. Pause captures the remaining milliseconds and clears timestamps. Reset returns to Focus / 25:00 / idle from either phase.
+- Each running room has one completion timeout. Pause/reset cancels it; resume schedules a fresh one. Revision and entry checks prevent an old callback from affecting a newer run. Completion switches **Focus → Break / 05:00 / idle**, then **Break → Focus / 25:00 / idle**. Neither phase starts automatically. A sync also settles an overdue completion if its callback was delayed.
+- Node processes actions sequentially. A duplicate Start cannot replace the existing start/end timestamps or schedule another completion. Inapplicable transitions return current state without mutation. Canonical changes increment revision and broadcast `timer:state` once to the room, including same-user tabs. Sync and duplicate-action replies go only to the requester.
+- Successful room joins always receive a freshly calculated timer snapshot. `useRoomTimer` reuses the existing socket, subscribes to one `timer:state` listener, and requests a sync after joining/reconnecting or returning to a visible tab. Older revisions on the same connection are ignored; a new connection accepts a fresh server's revision zero.
+- The timer card anchors received `remainingMs` to `performance.now()` and renders at 250 ms intervals inside the focused hook. The user's wall clock does not control the countdown. Network latency can introduce a small sub-second difference. **No timer state is broadcast or requested every second.**
+- Timer buttons wait for authoritative state, with a brief disabled state while awaiting acknowledgement. Offline controls are disabled and never buffered. An acknowledgement timeout reconnects for a fresh room/timer snapshot. The existing settings icon remains; durations are fixed at 25/5 minutes and the old local duration selector is read-only.
 
 ## Manual verification
 
@@ -46,6 +58,16 @@ This is anonymous, single-server, in-memory presence. A server restart clears ro
 
 To verify statuses, keep kei and mika open in separate profiles. Select **reading** in kei's own row: both windows should update kei's row and book pose immediately. Select **dying** for mika and check the slumped pose and Z indicator in both windows. Try **break** for the relaxed pose and closed laptop, then **coding** for the laptop and headphones. Each window should expose only one editable status. Refresh kei and verify the selected status survives. Open a second kei tab, change status from either tab and check all three views agree with one kei member. Close one kei tab and verify kei stays present. Briefly disconnect/reconnect, including longer than the grace period, and confirm the server restores the last selection.
 
+To verify the shared timer:
+
+1. Join the same room as kei and mika in separate profiles. Start as kei, wait ten seconds, and check the displays agree within roughly a second.
+2. Pause as mika and wait five seconds: both displays should stay frozen. Resume as kei, then reset as mika; both should return to Focus / 25:00 / Start.
+3. Start again, wait at least fifteen seconds, and join from a third independent profile. It should receive the current countdown. Refresh kei and briefly disconnect/reconnect; elapsed time and the single member entry should be preserved.
+4. Open another kei tab and control the timer from either tab. Both tabs and mika should agree. Close one kei tab and verify kei remains present.
+5. Open a different room (for example `/room/night-owls` alongside `/room/demo`). Its timer should remain independent. Try starting the same room from two users together; the second action must not restart the timer.
+6. Watch the browser's Network → WebSocket messages while the countdown runs: timer state appears on actions and synchronization, with no per-second timer broadcasts. Check the console for application errors.
+7. At focus completion, all users should see Break / 05:00 / Start. Start that break; completion returns everyone to Focus / 25:00 / Start. The automated clock tests cover both full-duration completions without waiting thirty minutes or changing production durations.
+
 ## Automated checks
 
 ```sh
@@ -54,4 +76,4 @@ npm run build --prefix client
 npm run build --prefix server
 ```
 
-The integration tests use disposable local servers and cover health/CORS, full and incremental lists, duplicates, room isolation/switching, explicit leaves, refresh/rejoin grace, multiple sockets per user, malformed wire payloads, and rooms with more than three members. Status tests cover all four values, room broadcasts, same-user tabs, field preservation, ownership rejection, disconnect tracking, status restoration before/after grace, room-scoped status memory, and reset on a fresh server. They use a shorter injected grace period for speed; the application default remains four seconds. No additional test framework is installed.
+The integration tests use disposable local servers and cover health/CORS, full and incremental lists, duplicates, room isolation/switching, explicit leaves, refresh/rejoin grace, multiple sockets per user, malformed wire payloads, and rooms with more than three members. Status tests cover all four values, room broadcasts, same-user tabs, field preservation, ownership rejection, disconnect tracking, status restoration before/after grace, room-scoped status memory, and reset on a fresh server. Timer tests cover authorization, concurrent starts, fresh join/rejoin/sync snapshots, room isolation, pause/resume/reset, event traffic, both phase completions, stale timeout cancellation and shutdown cleanup. Node's built-in mock clock exercises the real 25/5-minute durations. Presence tests use a shorter injected grace period for speed; the application default remains four seconds. No additional test framework is installed.
