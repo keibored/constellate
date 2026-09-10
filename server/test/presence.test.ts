@@ -6,6 +6,7 @@ import { io, type Socket } from 'socket.io-client';
 import { createAppServer } from '../src/app.js';
 import { DISCONNECT_GRACE_MS, RoomPresence } from '../src/socket/roomPresence.js';
 import type { ClientToServerEvents, ServerToClientEvents, RoomJoinPayload, RoomUser, PresenceUpdated, StatusUpdatePayload } from '../../shared/presence.js';
+import type { TimerStatePayload, TimerRequest } from '../../shared/timer.js';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 const kei: RoomUser = { id: 'test-user-kei', nickname: 'kei', avatar: 'dark' };
@@ -295,4 +296,99 @@ test('status requires an active tracked socket, including during disconnect grac
   presence.dispose();
   assert.equal(presence.join('demo', kei, 'socket-b').member.status, 'coding');
   presence.dispose();
+});
+
+test('timer controls broadcast to all room members and same-user tabs; concurrent starts do not restart', async t => {
+  const f = await fixture(t);
+  const a = await f.connect(), b = await f.connect(), sameUser = await f.connect(), isolated = await f.connect();
+  const states: TimerStatePayload[][] = [[], [], [], []];
+  [a, b, sameUser, isolated].forEach((client, index) => client.on('timer:state', state => states[index].push(state)));
+  await f.join(a);
+  await f.join(b, mika);
+  await f.join(sameUser);
+  await f.join(isolated, kei, 'night-owls');
+  assert.equal(states[0][0].remainingMs, 1_500_000);
+  await Promise.all([a, b].map(client => client.timeout(2_000).emitWithAck('timer:start', { roomId: 'demo' })));
+  await until(() => states.slice(0, 3).every(events => events.at(-1)?.status === 'running'), 'shared timer start');
+  const started = f.timers.current('demo');
+  assert.equal(started.revision, 1);
+  for (const events of states.slice(0, 3)) assert.equal(events.at(-1)?.endsAt, started.endsAt);
+  assert.equal(states[3].length, 1);
+  assert.equal(f.timers.current('night-owls').status, 'idle');
+  assert.equal(f.presence.list('demo').length, 2);
+  const eventCounts = states.map(events => events.length);
+  await delay(1_200);
+  assert.deepEqual(states.map(events => events.length), eventCounts, 'no per-second timer broadcasts');
+  assert.ok(f.timers.current('demo').remainingMs < started.remainingMs - 1_000);
+  await b.timeout(2_000).emitWithAck('timer:pause', { roomId: 'demo' });
+  await until(() => states.slice(0, 3).every(events => events.at(-1)?.status === 'paused'), 'shared pause');
+  const paused = f.timers.current('demo');
+  await delay(100);
+  assert.equal(f.timers.current('demo').remainingMs, paused.remainingMs);
+  await a.timeout(2_000).emitWithAck('timer:resume', { roomId: 'demo' });
+  assert.equal(f.timers.current('demo').revision, 3);
+  assert.ok(f.timers.current('demo').endsAt! > started.endsAt!);
+  await b.timeout(2_000).emitWithAck('timer:reset', { roomId: 'demo' });
+  await until(() => states.slice(0, 3).every(events => events.at(-1)?.revision === 4), 'shared reset');
+  assert.equal(f.timers.current('demo').remainingMs, 1_500_000);
+  assert.equal(f.timers.current('demo').status, 'idle');
+});
+
+test('late joins, reconnects and explicit sync receive current time after every member has left', async t => {
+  const f = await fixture(t);
+  const a = await f.connect();
+  await f.join(a);
+  await a.timeout(2_000).emitWithAck('timer:start', { roomId: 'demo' });
+  const started = f.timers.current('demo');
+  await delay(100);
+  const b = await f.connect();
+  const received: TimerStatePayload[] = [];
+  b.on('timer:state', state => received.push(state));
+  await f.join(b, mika);
+  assert.equal(received[0].endsAt, started.endsAt);
+  assert.ok(received[0].remainingMs < started.remainingMs);
+  a.disconnect();
+  b.disconnect();
+  await until(() => !f.presence.list('demo').length, 'all members leave after grace');
+  const returned = await f.connect();
+  returned.on('timer:state', state => received.push(state));
+  await f.join(returned);
+  assert.equal(received.at(-1)?.endsAt, started.endsAt);
+  assert.equal(received.at(-1)?.status, 'running');
+  assert.equal(received.at(-1)?.revision, 1);
+  await returned.timeout(2_000).emitWithAck('timer:sync', { roomId: 'demo' });
+  assert.equal(received.at(-1)?.endsAt, started.endsAt);
+  const fresh = await fixture(t);
+  const newcomer = await fresh.connect();
+  await fresh.join(newcomer);
+  assert.equal(fresh.timers.current('demo').status, 'idle');
+});
+
+test('all timer events reject malformed requests and sockets outside the active room membership', async t => {
+  const f = await fixture(t);
+  const a = await f.connect(), b = await f.connect(), unjoined = await f.connect();
+  await f.join(a);
+  await f.join(b, mika, 'night-owls');
+  const baseline = f.timers.current('demo');
+  const received: TimerStatePayload[] = [];
+  a.on('timer:state', state => received.push(state));
+  for (const event of ['timer:start', 'timer:pause', 'timer:resume', 'timer:reset', 'timer:sync'] as const) {
+    for (const payload of [null, [], {}, '', { roomId: '../bad' }, { roomId: 'x'.repeat(65) }]) {
+      assert.equal((await a.timeout(2_000).emitWithAck(event, payload as TimerRequest)).ok, false);
+    }
+    for (const client of [b, unjoined]) assert.equal((await client.timeout(2_000).emitWithAck(event, { roomId: 'demo' })).ok, false);
+    assert.equal((await a.timeout(2_000).emitWithAck(event, { roomId: 'missing-room' })).ok, false);
+  }
+  assert.equal(f.timers.current('demo').revision, baseline.revision);
+  assert.deepEqual(received, []);
+  await a.timeout(2_000).emitWithAck('room:leave', { roomId: 'demo' });
+  assert.equal((await a.timeout(2_000).emitWithAck('timer:reset', { roomId: 'demo' })).ok, false);
+  await f.join(a);
+  f.presence.leave('demo', kei.id, a.id!, true);
+  assert.equal((await a.timeout(2_000).emitWithAck('timer:start', { roomId: 'demo' })).ok, false, 'metadata alone is insufficient');
+  await f.join(a);
+  a.emit('timer:start', { roomId: 'demo' }, {} as (result: unknown) => void);
+  assert.deepEqual(await a.timeout(2_000).emitWithAck('timer:sync', { roomId: 'demo' }), { ok: true });
+  assert.equal(f.timers.current('demo').status, 'running');
+  assert.deepEqual(await (await fetch(`${f.url}/api/health`)).json(), { status: 'ok' });
 });

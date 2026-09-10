@@ -1,3 +1,5 @@
+import type { TimerAction, TimerRequest, TimerStatePayload } from './timer';
+
 export type AvatarId = 'dark' | 'pink' | 'green';
 export type PresenceStatus = 'coding' | 'reading' | 'dying' | 'break';
 
@@ -43,4 +45,3 @@ export interface ServerToClientEvents {
   'timer:state': (payload: TimerStatePayload) => void;
   'room:error': (payload: RoomError) => void;
 }
-import type { TimerAction, TimerRequest, TimerStatePayload } from './timer';
