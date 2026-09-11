@@ -2,7 +2,7 @@
 
 A cozy shared study room built with React, TypeScript, Express, and Socket.IO.
 
-The current real-time milestone covers anonymous room entry, live presence, live member statuses, and one shared Pomodoro timer per room. Rooms are created in memory when their first member joins. `/room/demo` and `/room/stellar-fox-27` use the same reusable route. Room IDs accept 1–64 letters, numbers, hyphens, or underscores, starting with a letter or number.
+The current real-time milestone covers anonymous room entry, live presence, live member statuses, a shared Pomodoro timer, and room chat. Rooms are created in memory when their first member joins. `/room/demo` and `/room/stellar-fox-27` use the same reusable route. Room IDs accept 1–64 letters, numbers, hyphens, or underscores, starting with a letter or number.
 
 ## Run locally
 
@@ -30,7 +30,7 @@ Defaults work without environment files. To customize them, copy `client/.env.ex
 - `room:error` reports malformed payloads. Status errors carry `operation: 'status:update'` so they do not mark a healthy room connection as failed. Typed join/leave/status acknowledgements return `{ ok: true }` or `{ ok: false, error }`; raw clients without an acknowledgement are also handled safely.
 - All members appear in the sidebar; only the first three populate the fixed desks. Empty desks retain their artwork. Desk position, avatar, and user identity are separate.
 
-This is anonymous, single-server, in-memory state. A server restart clears rooms, remembered statuses and timers; connected clients rejoin automatically. Task, reaction, and room-title controls remain local demo behavior. No database, authentication, shared tasks, or live reactions are included.
+This is anonymous, single-server, in-memory state. A server restart clears rooms, remembered statuses, timers and chat history; connected clients rejoin automatically. Task, reaction, and room-title controls remain local demo behavior. No database, authentication, shared tasks, or live reactions are included.
 
 ## Shared Pomodoro timer
 
@@ -43,6 +43,18 @@ This is anonymous, single-server, in-memory state. A server restart clears rooms
 - Successful room joins always receive a freshly calculated timer snapshot. `useRoomTimer` reuses the existing socket, subscribes to one `timer:state` listener, and requests a sync after joining/reconnecting or returning to a visible tab. Older revisions on the same connection are ignored; a new connection accepts a fresh server's revision zero.
 - The timer card anchors received `remainingMs` to `performance.now()` and renders at 250 ms intervals inside the focused hook. The user's wall clock does not control the countdown. Network latency can introduce a small sub-second difference. **No timer state is broadcast or requested every second.**
 - Timer buttons wait for authoritative state, with a brief disabled state while awaiting acknowledgement. Offline controls are disabled and never buffered. An acknowledgement timeout reconnects for a fresh room/timer snapshot. The existing settings icon remains; durations are fixed at 25/5 minutes and the old local duration selector is read-only.
+
+## Room chat
+
+- `shared/chat.d.ts` defines `ChatMessage`: `{ id, roomId, userId, nickname, avatar, content, createdAt }`. IDs are server-generated UUIDs and `createdAt` is a numeric server timestamp. The client formats timestamps in local time.
+- `chat:send` accepts only the needed data, `{ roomId, content }`. The handler verifies the socket's joined room/user metadata and retrieves the active member using that socket's membership. Sender ID, nickname and avatar come from that member; extra client-supplied identity, ID or timestamp fields are ignored.
+- Content must be a string, is trimmed, and must contain 1–500 characters using JavaScript string length (matching the input's `maxLength`). Blank, malformed and overlong messages are rejected. React renders message content as plain text, including anything that resembles HTML.
+- `server/src/socket/roomChat.ts` stores the latest **100 messages per room** and discards the oldest after that limit. Histories remain capped until server shutdown, including when a room empties. There is no database or persistent chat storage.
+- A rolling rate limit accepts at most **five messages per three seconds per room/user**, shared across that user's tabs. Other users and rooms have independent allowances. Expired rate windows are pruned when a room sends messages, without another timer. Rejection neither stores a message nor disconnects the sender.
+- Accepted messages broadcast once through `chat:message` to that Socket.IO room, including the sender. Joining/rejoining sends `chat:history { roomId, messages }` with the current room's recent history. Other rooms never receive those events.
+- `useRoomChat` reuses the existing socket, with one history listener and one message listener. History replaces the local array; future messages append only when their ID is new. Client lists also retain at most 100 messages. Room changes clear local chat state and filter out events for another room.
+- The compact sidebar form supports Enter or the Send button. It shows the server's canonical message with no temporary optimistic copy, clears the submitted draft only after a successful acknowledgement, and preserves a newer draft typed while awaiting that acknowledgement. Rejected messages retain the draft and show feedback. Offline drafts are not queued; an acknowledgement timeout reconnects to recover history without automatically resending.
+- The constrained message area follows new messages only when the reader is within 48 pixels of the bottom. Scrolling up to read older messages prevents forced scrolling. Avatars, muted self-message accents and local timestamps use the existing room style.
 
 ## Manual verification
 
@@ -68,6 +80,16 @@ To verify the shared timer:
 6. Watch the browser's Network → WebSocket messages while the countdown runs: timer state appears on actions and synchronization, with no per-second timer broadcasts. Check the console for application errors.
 7. At focus completion, all users should see Break / 05:00 / Start. Start that break; completion returns everyone to Focus / 25:00 / Start. The automated clock tests cover both full-duration completions without waiting thirty minutes or changing production durations.
 
+To verify chat:
+
+1. Join `/room/demo` as kei and mika in separate profiles. Send **hello mika** with Enter, then **lock in 😭** from mika using Send. Each view should show exactly one copy of each message with matching sender details and timestamps.
+2. Try spaces only and a message longer than 500 characters. The form blocks invalid sends and the server rejects malformed/overlong wire payloads without disrupting the room.
+3. Refresh kei and join as ari from another private session. Both should receive the same recent history, with no duplicates. Open a second kei tab and send from either tab; all views should receive one copy.
+4. Join `/room/night-owls` and send a message there. Neither live messages nor history should appear in demo. Switching rooms should replace the displayed history.
+5. Send rapidly: the sixth attempt within three seconds should be rejected with feedback, preserving the draft and connection. Wait three seconds and retry. The limit applies across same-user tabs.
+6. Fill enough history to scroll. Scroll upward, then receive another message: your reading position should remain. Return near the bottom and receive another: the log should follow it.
+7. Disconnect/reconnect kei while another member sends. Rejoining should restore the current history once; offline drafts should remain unsent. Check desktop/mobile layout and the console, then verify status/desk updates and timer Start/Pause/Resume/Reset still work.
+
 ## Automated checks
 
 ```sh
@@ -76,4 +98,4 @@ npm run build --prefix client
 npm run build --prefix server
 ```
 
-The integration tests use disposable local servers and cover health/CORS, full and incremental lists, duplicates, room isolation/switching, explicit leaves, refresh/rejoin grace, multiple sockets per user, malformed wire payloads, and rooms with more than three members. Status tests cover all four values, room broadcasts, same-user tabs, field preservation, ownership rejection, disconnect tracking, status restoration before/after grace, room-scoped status memory, and reset on a fresh server. Timer tests cover authorization, concurrent starts, fresh join/rejoin/sync snapshots, room isolation, pause/resume/reset, event traffic, both phase completions, stale timeout cancellation and shutdown cleanup. Node's built-in mock clock exercises the real 25/5-minute durations. Presence tests use a shorter injected grace period for speed; the application default remains four seconds. No additional test framework is installed.
+The integration tests use disposable local servers and cover health/CORS, full and incremental lists, duplicates, room isolation/switching, explicit leaves, refresh/rejoin grace, multiple sockets per user, malformed wire payloads, and rooms with more than three members. Status tests cover all four values, room broadcasts, same-user tabs, field preservation, ownership rejection, disconnect tracking, status restoration before/after grace, room-scoped status memory, and reset on a fresh server. Timer tests cover authorization, concurrent starts, fresh join/rejoin/sync snapshots, room isolation, pause/resume/reset, event traffic, both phase completions, stale timeout cancellation and shutdown cleanup. Chat tests cover canonical IDs, sender spoofing, validation boundaries, authorization, room isolation, join/rejoin history, the 100-message cap, shared-user rate limits and expiry, safe rejection and disposal. Node's built-in mock clock exercises the real timer durations and chat rate window. Presence tests use a shorter injected grace period for speed; the application default remains four seconds. No additional test framework is installed.
