@@ -4,7 +4,8 @@ import type { ClientToServerEvents, ServerToClientEvents, RoomResult, RoomError 
 import type { TimerAction } from '../../../shared/timer.js';
 import { RoomPresence } from './roomPresence.js';
 import { RoomTimer } from './roomTimer.js';
-import { parseJoin, parseStatusUpdate, readRoomId } from './validation.js';
+import { RoomChat } from './roomChat.js';
+import { parseChatSend, parseJoin, parseStatusUpdate, readRoomId } from './validation.js';
 
 interface SocketData { membership?: { roomId: string; userId: string } }
 type InterServerEvents = Record<string, never>;
@@ -21,6 +22,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
     io.to(channel(roomId)).emit('presence:left', { roomId, userId });
   }, graceMs);
   const timers = new RoomTimer(state => io.to(channel(state.roomId)).emit('timer:state', state));
+  const chat = new RoomChat();
 
   io.on('connection', socket => {
     const fail = (message: string, acknowledge?: (result: RoomResult) => void, operation?: RoomError['operation']) => {
@@ -50,6 +52,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       const { member, changed } = presence.join(join.roomId, join.user, socket.id);
       socket.emit('presence:list', { roomId: join.roomId, members: presence.list(join.roomId) });
       socket.emit('timer:state', timers.current(join.roomId));
+      socket.emit('chat:history', { roomId: join.roomId, messages: chat.history(join.roomId) });
       if (changed) socket.to(channel(join.roomId)).emit('presence:joined', { roomId: join.roomId, member });
       if (typeof acknowledge === 'function') acknowledge({ ok: true });
     });
@@ -92,9 +95,23 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       });
     }
 
+    socket.on('chat:send', (payload: unknown, acknowledge) => {
+      const message = parseChatSend(payload);
+      if (!message) { fail('Enter a message of 1–500 characters for a valid room.', acknowledge, 'chat:send'); return; }
+      const current = socket.data.membership;
+      const sender = current?.roomId === message.roomId
+        ? presence.memberForSocket(message.roomId, current.userId, socket.id) : null;
+      if (!sender) { fail('Join this room before sending a message.', acknowledge, 'chat:send'); return; }
+      // Only the joined server-side member supplies userId, nickname and avatar.
+      const result = chat.send(message.roomId, sender, message.content);
+      if (!result.ok) { fail(result.error, acknowledge, 'chat:send'); return; }
+      io.to(channel(message.roomId)).emit('chat:message', result.message);
+      if (typeof acknowledge === 'function') acknowledge({ ok: true });
+    });
+
     socket.on('disconnect', () => leaveCurrent(false));
   });
 
-  httpServer.on('close', () => { presence.dispose(); timers.dispose(); });
-  return { io, presence, timers };
+  httpServer.on('close', () => { presence.dispose(); timers.dispose(); chat.dispose(); });
+  return { io, presence, timers, chat };
 }
