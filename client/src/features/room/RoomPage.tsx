@@ -6,6 +6,7 @@ import { MembersPanel } from '../presence/MembersPanel';
 import { getLocalIdentity } from '../presence/localIdentity';
 import { useRoomPresence } from '../presence/useRoomPresence';
 import { JoinRoomDialog } from '../presence/JoinRoomDialog';
+import { RoomChat } from '../chat/RoomChat';
 import { ReactionsPanel } from '../reactions/ReactionsPanel';
 import { TaskBoard } from '../tasks/TaskBoard';
 import { FocusTimer } from '../timer/FocusTimer';
@@ -41,7 +42,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
           <RoomScene members={members}><RoomInfoCard room={room} onRename={setRoomName} onInvite={copyLink} copied={copied} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard /></RoomScene>
           <div className="room-bottom-caption"><span><span className="status-dot status-dot--coding" />a little company goes a long way</span><span>same stars, different desks <span aria-hidden="true">✦</span></span></div>
         </div>
-        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel members={members} currentUserId={identity?.userId} connection={connection} error={error} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><ReactionsPanel /><EncouragementCard /></aside>
+        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel members={members} currentUserId={identity?.userId} connection={connection} error={error} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={identity?.userId} connection={connection} /><ReactionsPanel /><EncouragementCard /></aside>
       </main>
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>
       <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} />

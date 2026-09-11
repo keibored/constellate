@@ -57,6 +57,11 @@ export class RoomPresence {
     return this.rooms.get(roomId)?.get(userId)?.sockets.has(socketId) ?? false;
   }
 
+  memberForSocket(roomId: string, userId: string, socketId: string): MemberPresence | null {
+    const entry = this.rooms.get(roomId)?.get(userId);
+    return entry?.sockets.has(socketId) ? entry.member : null;
+  }
+
   leave(roomId: string, userId: string, socketId: string, immediate = false) {
     const entry = this.rooms.get(roomId)?.get(userId);
     if (!entry || !entry.sockets.delete(socketId) || entry.sockets.size) return;
