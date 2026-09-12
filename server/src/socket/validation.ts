@@ -1,6 +1,8 @@
 import type { RoomJoinPayload, StatusUpdatePayload } from '../../../shared/presence.js';
 import type { ChatSendPayload } from '../../../shared/chat.js';
 
+const presenceStatuses = new Set(['coding', 'reading', 'writing', 'studying', 'break', 'dying']);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -26,8 +28,8 @@ export function parseStatusUpdate(payload: unknown): StatusUpdatePayload | null 
   if (!isRecord(payload) || !isRoomId(payload.roomId)) return null;
   const { userId, status } = payload;
   if (typeof userId !== 'string' || !/^[a-zA-Z0-9_-]{8,64}$/.test(userId)) return null;
-  if (status !== 'coding' && status !== 'reading' && status !== 'break' && status !== 'dying') return null;
-  return { roomId: payload.roomId, userId, status };
+  if (typeof status !== 'string' || !presenceStatuses.has(status)) return null;
+  return { roomId: payload.roomId, userId, status: status as StatusUpdatePayload['status'] };
 }
 
 export function parseChatSend(payload: unknown): ChatSendPayload | null {

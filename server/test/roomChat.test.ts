@@ -11,7 +11,7 @@ import type { ChatHistory, ChatMessage, ChatSendPayload } from '../../shared/cha
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 const kei: RoomUser = { id: 'chat-user-kei', nickname: 'kei', avatar: 'dark' };
 const mika: RoomUser = { id: 'chat-user-mika', nickname: 'mika', avatar: 'pink' };
-const member: MemberPresence = { userId: kei.id, nickname: kei.nickname, avatar: kei.avatar, status: 'reading', connectedAt: 123 };
+const member: MemberPresence = { userId: kei.id, nickname: kei.nickname, avatar: kei.avatar, status: 'reading', connectedAt: 123, connected: true, deskId: 'desk-1' };
 const origin = 'http://localhost:5173';
 
 async function until(condition: () => boolean, label: string) {

@@ -18,9 +18,12 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
     allowRequest: (request, callback) => callback(null, !request.headers.origin || allowedOrigins.includes(request.headers.origin)),
     maxHttpBufferSize: 16_384,
   });
+  const broadcastMembers = (roomId: string) => {
+    io.to(channel(roomId)).emit('presence:list', { roomId, members: presence.list(roomId) });
+  };
   const presence = new RoomPresence((roomId, userId) => {
     io.to(channel(roomId)).emit('presence:left', { roomId, userId });
-  }, graceMs);
+  }, graceMs, broadcastMembers);
   const timers = new RoomTimer(state => io.to(channel(state.roomId)).emit('timer:state', state));
   const chat = new RoomChat();
 
@@ -50,7 +53,8 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       socket.join(channel(join.roomId));
       socket.data.membership = { roomId: join.roomId, userId: join.user.id };
       const { member, changed } = presence.join(join.roomId, join.user, socket.id);
-      socket.emit('presence:list', { roomId: join.roomId, members: presence.list(join.roomId) });
+      if (changed) broadcastMembers(join.roomId);
+      else socket.emit('presence:list', { roomId: join.roomId, members: presence.list(join.roomId) });
       socket.emit('timer:state', timers.current(join.roomId));
       socket.emit('chat:history', { roomId: join.roomId, messages: chat.history(join.roomId) });
       if (changed) socket.to(channel(join.roomId)).emit('presence:joined', { roomId: join.roomId, member });
@@ -66,7 +70,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
 
     socket.on('status:update', (payload: unknown, acknowledge) => {
       const update = parseStatusUpdate(payload);
-      if (!update) { fail('Choose coding, reading, break, or dying for a valid room and user.', acknowledge, 'status:update'); return; }
+      if (!update) { fail('Choose coding, reading, writing, studying, break, or dying for a valid room and user.', acknowledge, 'status:update'); return; }
       const current = socket.data.membership;
       if (current?.roomId !== update.roomId || current.userId !== update.userId) {
         fail('You can only change your own status in the room you joined.', acknowledge, 'status:update');
