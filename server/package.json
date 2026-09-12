@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts && tsx --tsconfig ../client/tsconfig.app.json --test test/*.test.tsx"
   },
   "dependencies": {
     "cors": "^2.8.5",
