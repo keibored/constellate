@@ -26,6 +26,7 @@
 .member-status-control select:disabled { cursor: wait; opacity: .65; }
 .member-status-control option { background: #30283b; color: #ebdce0; }
 .member-status-control svg { position: absolute; right: 1px; pointer-events: none; }
+.member-status-icon { display: inline-block; margin-right: 5px; }
 .presence-status-error { color: #eab1bd; font-size: 11px; line-height: 1.6; margin: 8px 0; }
 .member-list--many { max-height: 275px; overflow-y: auto; scrollbar-width: thin; }
 .desk-member-label strong { overflow: hidden; text-overflow: ellipsis; }
@@ -44,6 +45,12 @@
 .status-dot--break { background: #b5a8d1; }
 .member-status--break { color: #c9bbdf; }
 .desk-progress--break span { background: #b5a8d1; }
+.status-dot--writing { background: #d7a1b7; }
+.member-status--writing { color: #dfb0c4; }
+.desk-progress--writing span { background: #d7a1b7; }
+.status-dot--studying { background: #9eafd1; }
+.member-status--studying { color: #b8c3e2; }
+.desk-progress--studying span { background: #9eafd1; }
 @media (max-width: 480px) {
   .member-list--many { flex-direction: column; }
   .member-list--many .member-row { flex-direction: row; }

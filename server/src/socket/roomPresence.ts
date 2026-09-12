@@ -1,4 +1,4 @@
-import type { MemberPresence, PresenceStatus, RoomUser } from '../../../shared/presence.js';
+import type { DeskId, MemberPresence, PresenceStatus, RoomUser } from '../../../shared/presence.js';
 
 interface PresenceEntry {
   member: MemberPresence;
@@ -6,7 +6,8 @@ interface PresenceEntry {
   removal?: ReturnType<typeof setTimeout>;
 }
 
-export const DISCONNECT_GRACE_MS = 4_000;
+export const DISCONNECT_GRACE_MS = 8_000;
+const DESKS: DeskId[] = ['desk-1', 'desk-2', 'desk-3'];
 
 /** Single-process, disposable presence. Socket IDs only count connections. */
 export class RoomPresence {
@@ -17,6 +18,7 @@ export class RoomPresence {
   constructor(
     private onRemoved: (roomId: string, userId: string) => void,
     private graceMs = DISCONNECT_GRACE_MS,
+    private onChanged: (roomId: string) => void = () => {},
   ) {}
 
   join(roomId: string, user: RoomUser, socketId: string) {
@@ -28,14 +30,31 @@ export class RoomPresence {
       userId: user.id, nickname: user.nickname, avatar: user.avatar,
       status: previous?.member.status ?? this.rememberedStatuses.get(roomId)?.get(user.id) ?? 'coding',
       connectedAt: previous?.member.connectedAt ?? Date.now(),
+      connected: true,
+      deskId: previous?.member.deskId ?? this.availableDesk(room),
     };
     const sockets = previous?.sockets ?? new Set<string>();
     sockets.add(socketId);
     room.set(user.id, { member, sockets });
     return {
       member,
-      changed: !previous || previous.member.nickname !== member.nickname || previous.member.avatar !== member.avatar,
+      changed: !previous || !previous.member.connected || previous.member.nickname !== member.nickname || previous.member.avatar !== member.avatar,
     };
+  }
+
+  private availableDesk(room: Map<string, PresenceEntry>): DeskId | null {
+    const occupied = new Set([...room.values()].map(entry => entry.member.deskId));
+    return DESKS.find(desk => !occupied.has(desk)) ?? null;
+  }
+
+  private seatWaitingMembers(room: Map<string, PresenceEntry>) {
+    // Map insertion order is join order, even when two guests arrive in the same millisecond.
+    for (const entry of room.values()) {
+      if (!entry.member.connected || entry.member.deskId) continue;
+      const deskId = this.availableDesk(room);
+      if (!deskId) break;
+      entry.member = { ...entry.member, deskId };
+    }
   }
 
   list(roomId: string): MemberPresence[] {
@@ -72,10 +91,16 @@ export class RoomPresence {
       if (room?.get(userId) !== entry || entry.sockets.size) return;
       room.delete(userId);
       if (!room.size) this.rooms.delete(roomId);
+      else this.seatWaitingMembers(room);
       this.onRemoved(roomId, userId);
+      this.onChanged(roomId);
     };
     if (immediate) remove();
-    else entry.removal = setTimeout(remove, this.graceMs);
+    else {
+      entry.member = { ...entry.member, connected: false };
+      entry.removal = setTimeout(remove, this.graceMs);
+      this.onChanged(roomId);
+    }
   }
 
   dispose() {

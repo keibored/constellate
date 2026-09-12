@@ -54,7 +54,7 @@ test('health, full list and incremental joins work; repeated joins stay unique',
   const response = await fetch(`${f.url}/api/health`, { headers: { Origin: origin } });
   assert.deepEqual(await response.json(), { status: 'ok' });
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
-  assert.equal(DISCONNECT_GRACE_MS, 4_000);
+  assert.equal(DISCONNECT_GRACE_MS, 8_000);
 
   const a = await f.connect();
   const lists: string[][] = [], joins: string[] = [];
@@ -178,6 +178,68 @@ test('presence lists all members beyond the three visual desk slots', async t =>
     await f.join(client, { ...kei, id: `test-user-${index}`, nickname: `friend ${index}` });
   }
   assert.equal(f.presence.list('demo').length, 5);
+  assert.deepEqual(f.presence.list('demo').map(member => member.deskId), ['desk-1', 'desk-2', 'desk-3', null, null]);
+});
+
+test('server desks remain stable, reserve places through grace, and promote waiting members when a desk is freed', t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  const removed: string[] = [];
+  const presence = new RoomPresence((_room, userId) => removed.push(userId));
+  t.after(() => presence.dispose());
+  const users = [kei, mika, { ...kei, id: 'third-user', nickname: 'ari' }, { ...kei, id: 'fourth-user', nickname: 'sam' }];
+  users.forEach((user, index) => presence.join('demo', user, `socket-${index}`));
+  presence.leave('demo', kei.id, 'socket-0');
+  const held = presence.list('demo').find(member => member.userId === kei.id)!;
+  assert.equal(held.connected, false);
+  assert.equal(held.deskId, 'desk-1');
+  t.mock.timers.tick(DISCONNECT_GRACE_MS - 1);
+  assert.equal(presence.list('demo').length, 4);
+  const restored = presence.join('demo', kei, 'refreshed').member;
+  assert.equal(restored.deskId, 'desk-1');
+  assert.equal(restored.connectedAt, held.connectedAt);
+  assert.equal(restored.connected, true);
+  t.mock.timers.tick(DISCONNECT_GRACE_MS);
+  assert.deepEqual(removed, []);
+  presence.leave('demo', kei.id, 'refreshed');
+  t.mock.timers.tick(DISCONNECT_GRACE_MS);
+  assert.deepEqual(removed, [kei.id]);
+  const desks = new Map(presence.list('demo').map(member => [member.userId, member.deskId]));
+  assert.equal(desks.get(mika.id), 'desk-2');
+  assert.equal(desks.get(users[2].id), 'desk-3');
+  assert.equal(desks.get(users[3].id), 'desk-1');
+  assert.equal(presence.join('test-room', kei, 'isolated').member.deskId, 'desk-1');
+});
+
+test('a disconnected waiting member can take a free desk when reconnecting', t => {
+  const presence = new RoomPresence(() => {});
+  t.after(() => presence.dispose());
+  for (let index = 0; index < 4; index++) presence.join('demo', { ...kei, id: `test-user-${index}` }, `socket-${index}`);
+  presence.leave('demo', 'test-user-3', 'socket-3');
+  presence.leave('demo', 'test-user-0', 'socket-0', true);
+  assert.equal(presence.join('demo', { ...kei, id: 'test-user-3' }, 'returned').member.deskId, 'desk-1');
+});
+
+test('all room peers receive full snapshots for joins, disconnected grace, reconnect and final removal', async t => {
+  const f = await fixture(t);
+  const a = await f.connect(), b = await f.connect(), isolated = await f.connect();
+  const snapshots: import('../../shared/presence.js').PresenceList[] = [];
+  const isolatedSnapshots: unknown[] = [];
+  a.on('presence:list', list => snapshots.push(list));
+  await f.join(a);
+  await f.join(isolated, kei, 'test-room');
+  isolated.on('presence:list', list => isolatedSnapshots.push(list));
+  await f.join(b, mika);
+  await until(() => snapshots.at(-1)?.members.length === 2, 'full list broadcast after join');
+  assert.deepEqual(snapshots.at(-1)?.members.map(member => member.deskId), ['desk-1', 'desk-2']);
+  b.disconnect();
+  await until(() => snapshots.at(-1)?.members.some(member => member.userId === mika.id && !member.connected) === true, 'grace snapshot');
+  const returned = await f.connect();
+  await f.join(returned, mika);
+  await until(() => snapshots.at(-1)?.members.every(member => member.connected) === true, 'restored snapshot');
+  returned.disconnect();
+  await until(() => snapshots.at(-1)?.members.length === 1, 'removal snapshot');
+  assert.equal(snapshots.at(-1)?.members[0].deskId, 'desk-1');
+  assert.deepEqual(isolatedSnapshots, []);
 });
 
 test('unlisted browser origins cannot connect with either transport', async t => {
@@ -202,13 +264,13 @@ test('all statuses reach the sender, same-user tabs and room peers without chang
   const original = { ...f.presence.list('demo').find(member => member.userId === kei.id)! };
   const updates: PresenceUpdated[][] = [[], [], [], []];
   [a, sameUser, observer, otherRoom].forEach((client, index) => client.on('presence:updated', event => updates[index].push(event)));
-  for (const status of ['reading', 'break', 'dying', 'coding'] as const) {
+  for (const status of ['reading', 'writing', 'studying', 'break', 'dying', 'coding'] as const) {
     assert.deepEqual(await a.timeout(2_000).emitWithAck('status:update', { roomId: 'demo', userId: kei.id, status }), { ok: true });
     await until(() => updates.slice(0, 3).every(events => events.at(-1)?.member.status === status), `${status} broadcast`);
     for (const events of updates.slice(0, 3)) assert.deepEqual(events.at(-1), { roomId: 'demo', member: { ...original, status } });
     assert.equal(f.presence.list('demo').length, 2);
   }
-  assert.deepEqual(updates.map(events => events.length), [4, 4, 4, 0]);
+  assert.deepEqual(updates.map(events => events.length), [6, 6, 6, 0]);
   a.disconnect();
   await delay(graceMs + 60);
   assert.equal(f.presence.list('demo').length, 2);

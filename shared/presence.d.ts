@@ -2,7 +2,8 @@ import type { TimerAction, TimerRequest, TimerStatePayload } from './timer';
 import type { ChatHistory, ChatMessage, ChatSendPayload } from './chat';
 
 export type AvatarId = 'dark' | 'pink' | 'green';
-export type PresenceStatus = 'coding' | 'reading' | 'dying' | 'break';
+export type PresenceStatus = 'coding' | 'reading' | 'writing' | 'studying' | 'break' | 'dying';
+export type DeskId = 'desk-1' | 'desk-2' | 'desk-3';
 
 export interface RoomUser {
   id: string;
@@ -16,6 +17,8 @@ export interface MemberPresence {
   avatar: AvatarId;
   status: PresenceStatus;
   connectedAt: number;
+  connected: boolean;
+  deskId: DeskId | null;
 }
 
 export interface RoomJoinPayload { roomId: string; user: RoomUser }
