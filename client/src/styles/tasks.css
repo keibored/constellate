@@ -1,0 +1,6 @@
+.quest-delete { flex: 0 0 20px; width: 20px; height: 22px; margin-left: 4px; }
+.quest-empty, .quest-error { font-size: 10px; line-height: 1.5; margin: 8px 0; color: var(--text-muted, #c3b2c5); }
+.quest-error { color: #e5b3c1; }
+.quest-label { min-width: 0; }
+.quest-label > span:last-child { overflow-wrap: anywhere; }
+.task-board button:disabled, .quest-label input:disabled + .quest-checkbox { opacity: .55; cursor: default; }
