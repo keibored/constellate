@@ -1,0 +1,5 @@
+.room-entry-form { display: flex; flex-direction: column; gap: 14px; width: min(100%, 340px); text-align: left; }
+.room-entry-form input { min-width: 0; padding: 10px 12px; border: 1px solid #927d98; border-radius: 5px; background: #292536; color: #eadce7; }
+.room-info .leave-room { margin-left: auto; }
+.room-code > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-code .icon-button { flex-shrink: 0; }
