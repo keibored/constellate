@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { RoomRepository, RoomMutation } from '../../src/repositories/roomRepository.js';
-import { RoomStateError } from '../../src/repositories/roomRepository.js';
+import { RoomNotFoundError, RoomStateError } from '../../src/repositories/roomRepository.js';
 import type { RoomStatePayload } from '../../../shared/roomState.js';
 
 /** Explicit test double for transport/unit tests. Production always injects PostgreSQL. */
 export class TestRoomRepository implements RoomRepository {
   readonly rooms = new Map<string, RoomStatePayload>();
   async health() {}
-  async load(roomId: string) {
+  async load(roomId: string, createIfMissing = true) {
+    if (!this.rooms.has(roomId) && !createIfMissing) throw new RoomNotFoundError();
     if (!this.rooms.has(roomId)) this.rooms.set(roomId, { roomId, revision: 0, room: { id: roomId, name: 'Late night grind', createdAt: Date.now(), updatedAt: Date.now() }, tasks: [] });
     return structuredClone(this.rooms.get(roomId)!);
   }

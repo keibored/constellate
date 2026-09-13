@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { RoomStatePayload, RoomTask } from '../../../shared/roomState.js';
-import { RoomStateError, type RoomMutation, type RoomRepository } from './roomRepository.js';
+import { RoomNotFoundError, RoomStateError, type RoomMutation, type RoomRepository } from './roomRepository.js';
 
 interface RoomRow { id: string; name: string; revision: number; created_at: Date; updated_at: Date }
 interface TaskRow {
@@ -15,16 +15,16 @@ export class PostgresRoomRepository implements RoomRepository {
   constructor(private pool: Pool) {}
 
   async health() { await this.pool.query('SELECT 1'); }
-  load(roomId: string) { return this.transaction(roomId); }
+  load(roomId: string, createIfMissing = true) { return this.transaction(roomId, undefined, createIfMissing); }
   mutate(roomId: string, action: RoomMutation) { return this.transaction(roomId, action); }
 
-  private async transaction(roomId: string, action?: RoomMutation): Promise<RoomStatePayload> {
+  private async transaction(roomId: string, action?: RoomMutation, createIfMissing = false): Promise<RoomStatePayload> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      if (!action) await client.query('INSERT INTO rooms(id) VALUES ($1) ON CONFLICT(id) DO NOTHING', [roomId]);
+      if (!action && createIfMissing) await client.query('INSERT INTO rooms(id) VALUES ($1) ON CONFLICT(id) DO NOTHING', [roomId]);
       const found = await client.query<RoomRow>('SELECT * FROM rooms WHERE id = $1 FOR UPDATE', [roomId]);
-      if (!found.rowCount) throw new RoomStateError('This room no longer exists. Rejoin the room.');
+      if (!found.rowCount) throw new RoomNotFoundError();
       let room = found.rows[0];
       if (action && await this.apply(client, room, action)) {
         room = (await client.query<RoomRow>('UPDATE rooms SET revision = revision + 1, updated_at = clock_timestamp() WHERE id = $1 RETURNING *', [roomId])).rows[0];

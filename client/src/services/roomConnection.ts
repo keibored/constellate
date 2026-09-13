@@ -1,4 +1,4 @@
-import type { RoomError, RoomUser } from '../../../shared/presence';
+import type { PresenceStatus, RoomError, RoomUser } from '../../../shared/presence';
 import type { RoomSocket } from './socket';
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -9,14 +9,19 @@ interface RoomConnectionHandlers {
   error: (message: string | null) => void;
   disconnected: () => void;
   log?: (event: string, details?: unknown) => void;
+  savedStatus?: () => PresenceStatus;
+  joined?: () => void;
+  missing?: () => void;
+  restore?: boolean;
 }
 
-/** Owns one room subscription. Retries joins on the existing transport, with a limit. */
+/** Owns one room subscription; bounds silent timeouts and retries known transient failures. */
 export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, handlers: RoomConnectionHandlers) {
   let active = true;
   let generation = 0;
   let joinAttempts = 0;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let restoring = handlers.restore ?? false;
   const log = handlers.log ?? (() => {});
   const cancelJoin = () => {
     generation++;
@@ -33,7 +38,9 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
     joinAttempts++;
     handlers.connection(joinAttempts === 1 ? 'connecting' : 'reconnecting');
     handlers.error(null);
-    socket.timeout(5_000).emit('room:join', { roomId, user }, (timeoutError: Error | null, result) => {
+    socket.timeout(5_000).emit('room:join', {
+      roomId, user, ...(handlers.savedStatus ? { status: handlers.savedStatus() } : {}), ...(restoring ? { restore: true } : {}),
+    }, (timeoutError: Error | null, result) => {
       if (!active || request !== generation || !socket.connected) return;
       if (timeoutError) {
         log('room error', { roomId, message: 'Join acknowledgement timed out', attempt: joinAttempts });
@@ -43,8 +50,17 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
         } else fail('The room did not respond. Try reconnecting.');
       } else if (!result?.ok) {
         log('room error', { roomId, message: result?.error });
-        fail(result?.error ?? 'Unable to join this room.');
+        if (result && result.retryable) {
+          handlers.error(result.error);
+          handlers.connection('reconnecting');
+          retryTimer = setTimeout(join, Math.min(joinAttempts * 1_000, 5_000));
+        } else {
+          if (result?.code === 'ROOM_NOT_FOUND') handlers.missing?.();
+          fail(result?.error ?? 'Unable to join this room.');
+        }
       } else {
+        restoring = true;
+        handlers.joined?.();
         handlers.connection('connected');
         handlers.error(null);
         log('joined room', { roomId, userId: user.id, socketId: socket.id });
@@ -91,6 +107,16 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
   if (socket.connected) onConnect();
   else socket.connect();
 
+  const detach = () => {
+    active = false;
+    cancelJoin();
+    socket.off('connect', onConnect);
+    socket.off('disconnect', onDisconnect);
+    socket.off('connect_error', onConnectError);
+    socket.off('room:error', onRoomError);
+    socket.io.off('reconnect_attempt', onReconnecting);
+    socket.io.off('reconnect_failed', onReconnectFailed);
+  };
   return {
     retry() {
       if (!active) return;
@@ -101,16 +127,21 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
       if (socket.connected) join();
       else socket.connect();
     },
+    async leave() {
+      if (!active) return;
+      detach();
+      handlers.disconnected();
+      handlers.connection('idle');
+      // Wait for the room leave to arrive before closing the transport/navigation.
+      // Offline guests have no packets queued; their final socket expires by grace.
+      if (socket.connected) await new Promise<void>(resolve => {
+        socket.timeout(1_500).emit('room:leave', { roomId }, () => resolve());
+      });
+      socket.disconnect();
+    },
     dispose() {
       if (!active) return;
-      active = false;
-      cancelJoin();
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('connect_error', onConnectError);
-      socket.off('room:error', onRoomError);
-      socket.io.off('reconnect_attempt', onReconnecting);
-      socket.io.off('reconnect_failed', onReconnectFailed);
+      detach();
       // Explicit navigation leaves immediately, even if its join ack was lost.
       // Browser unload closes the transport instead, preserving the server grace period.
       if (socket.connected) socket.emit('room:leave', { roomId }, () => {});

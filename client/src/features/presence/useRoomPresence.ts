@@ -3,6 +3,7 @@ import type { MemberPresence, PresenceJoined, PresenceLeft, PresenceList, Presen
 import { logRoomEvent, roomSocket } from '../../services/socket';
 import { connectRoom, type ConnectionStatus } from '../../services/roomConnection';
 import type { LocalIdentity } from './localIdentity';
+import { forgetRoom, getLastRoom, getRoomStatus, rememberRoom, rememberStatus } from './localSession';
 
 export type { ConnectionStatus } from '../../services/roomConnection';
 
@@ -19,6 +20,12 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
   const statusRequest = useRef(0);
   const reconnectRef = useRef<() => void>(() => {});
   const reconnect = useCallback(() => reconnectRef.current(), []);
+  const leaveRef = useRef<() => Promise<void>>(async () => {});
+  const leave = useCallback(async () => {
+    forgetRoom(roomId);
+    await leaveRef.current();
+    forgetRoom(roomId);
+  }, [roomId]);
 
   const updateStatus = useCallback((status: PresenceStatus) => {
     // Status choices are never queued offline and replayed over newer server state.
@@ -48,14 +55,19 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     setStatusError(null);
     if (!identity) { setConnection('idle'); return; }
     const { userId, nickname, avatar } = identity;
+    const saveOwnStatus = (member?: MemberPresence) => {
+      if (member?.userId === userId) rememberStatus(userId, roomId, member.status);
+    };
     const onList = (payload: PresenceList) => {
       if (payload.roomId !== roomId) return;
       clearPendingStatus();
       setStatusError(null);
+      saveOwnStatus(payload.members.find(member => member.userId === userId));
       setMembers(ordered([...new Map(payload.members.map(member => [member.userId, member])).values()]));
     };
     const onJoined = ({ roomId: eventRoom, member }: PresenceJoined) => {
       if (eventRoom !== roomId) return;
+      saveOwnStatus(member);
       setMembers(current => ordered([...current.filter(item => item.userId !== member.userId), member]));
     };
     const onLeft = ({ roomId: eventRoom, userId: leavingUser }: PresenceLeft) => {
@@ -63,6 +75,7 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     };
     const onUpdated = ({ roomId: eventRoom, member }: PresenceUpdated) => {
       if (eventRoom !== roomId) return;
+      saveOwnStatus(member);
       setMembers(current => current.map(item => item.userId === member.userId ? member : item));
     };
     const onRoomError = ({ message, operation }: RoomError) => {
@@ -76,12 +89,18 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     roomSocket.on('room:error', onRoomError);
     const subscription = connectRoom(roomSocket, roomId, { id: userId, nickname, avatar }, {
       connection: setConnection, error: setError, disconnected: clearPendingStatus, log: logRoomEvent,
+      savedStatus: () => getRoomStatus(userId, roomId),
+      restore: getLastRoom() === roomId,
+      joined: () => rememberRoom(roomId),
+      missing: () => setMembers([]),
     });
     reconnectRef.current = subscription.retry;
+    leaveRef.current = subscription.leave;
 
     return () => {
       statusRequest.current++;
       reconnectRef.current = () => {};
+      leaveRef.current = async () => {};
       roomSocket.off('presence:list', onList);
       roomSocket.off('presence:joined', onJoined);
       roomSocket.off('presence:left', onLeft);
@@ -94,5 +113,5 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
   const displayedMembers = pendingStatus?.roomId === roomId
     ? members.map(member => member.userId === pendingStatus.userId ? { ...member, status: pendingStatus.status } : member)
     : members;
-  return { members: displayedMembers, connection, error, reconnect, updateStatus, statusError };
+  return { members: displayedMembers, connection, error, reconnect, leave, updateStatus, statusError };
 }

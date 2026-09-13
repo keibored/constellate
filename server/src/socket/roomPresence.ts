@@ -6,7 +6,7 @@ interface PresenceEntry {
   removal?: ReturnType<typeof setTimeout>;
 }
 
-export const DISCONNECT_GRACE_MS = 8_000;
+export const DISCONNECT_GRACE_MS = 15_000;
 const DESKS: DeskId[] = ['desk-1', 'desk-2', 'desk-3'];
 
 /** Single-process, disposable presence. Socket IDs only count connections. */
@@ -21,14 +21,14 @@ export class RoomPresence {
     private onChanged: (roomId: string) => void = () => {},
   ) {}
 
-  join(roomId: string, user: RoomUser, socketId: string) {
+  join(roomId: string, user: RoomUser, socketId: string, savedStatus?: PresenceStatus) {
     let room = this.rooms.get(roomId);
     if (!room) { room = new Map(); this.rooms.set(roomId, room); }
     const previous = room.get(user.id);
     if (previous?.removal) clearTimeout(previous.removal);
     const member: MemberPresence = {
       userId: user.id, nickname: user.nickname, avatar: user.avatar,
-      status: previous?.member.status ?? this.rememberedStatuses.get(roomId)?.get(user.id) ?? 'coding',
+      status: previous?.member.status ?? this.rememberedStatuses.get(roomId)?.get(user.id) ?? savedStatus ?? 'coding',
       connectedAt: previous?.member.connectedAt ?? Date.now(),
       connected: true,
       deskId: previous?.member.deskId ?? this.availableDesk(room),
@@ -36,8 +36,12 @@ export class RoomPresence {
     const sockets = previous?.sockets ?? new Set<string>();
     sockets.add(socketId);
     room.set(user.id, { member, sockets });
+    let statuses = this.rememberedStatuses.get(roomId);
+    if (!statuses) { statuses = new Map(); this.rememberedStatuses.set(roomId, statuses); }
+    statuses.set(user.id, member.status);
     return {
       member,
+      joined: !previous,
       changed: !previous || !previous.member.connected || previous.member.nickname !== member.nickname || previous.member.avatar !== member.avatar,
     };
   }

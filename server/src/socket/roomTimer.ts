@@ -38,7 +38,7 @@ export class RoomTimer {
   }
 
   private completeIfDue(roomId: string, entry: TimerEntry, now: number) {
-    if (entry.state.status !== 'running' || entry.state.endsAt! > now) return;
+    if (entry.state.status !== 'running' || entry.state.endsAt! > now) return false;
     this.cancelCompletion(entry);
     const phase = entry.state.phase === 'focus' ? 'shortBreak' : 'focus';
     entry.state = {
@@ -46,6 +46,7 @@ export class RoomTimer {
       startedAt: null, endsAt: null, revision: entry.state.revision + 1,
     };
     this.onChanged(this.snapshot(roomId, entry, now));
+    return true;
   }
 
   private scheduleCompletion(roomId: string, entry: TimerEntry) {
@@ -73,7 +74,13 @@ export class RoomTimer {
   apply(roomId: string, action: TimerAction): { state: TimerStatePayload; changed: boolean } {
     const entry = this.getOrCreate(roomId);
     const now = Date.now();
-    this.completeIfDue(roomId, entry, now);
+    const completed = this.completeIfDue(roomId, entry, now);
+    // A request for the expired run must not start/pause the next phase.
+    // Completion already broadcast its snapshot, so the socket handler must not
+    // send that same transition a second time as a sync/no-op response.
+    if (completed && action !== 'reset') {
+      return { state: this.snapshot(roomId, entry, now), changed: true };
+    }
     const state = entry.state;
     if ((action === 'start' && state.status === 'idle') || (action === 'resume' && state.status === 'paused')) {
       entry.state = { ...state, status: 'running', startedAt: now, endsAt: now + state.remainingMs, revision: state.revision + 1 };

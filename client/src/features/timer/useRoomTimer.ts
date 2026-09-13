@@ -2,12 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimerAction, TimerStatePayload } from '../../../../shared/timer';
 import type { ConnectionStatus } from '../presence/useRoomPresence';
 import { roomSocket } from '../../services/socket';
-
-interface ReceivedTimer {
-  state: TimerStatePayload;
-  receivedAt: number;
-  socketId: string;
-}
+import { receiveTimer, remainingTimerMs, type ReceivedTimer } from './timerClock';
 
 export function useRoomTimer(roomId: string, connection: ConnectionStatus) {
   const [received, setReceived] = useState<ReceivedTimer | null>(null);
@@ -22,22 +17,29 @@ export function useRoomTimer(roomId: string, connection: ConnectionStatus) {
     latest.current = null;
     setReceived(null);
     setError(null);
+    setPending(false);
     const onState = (state: TimerStatePayload) => {
       if (state.roomId !== roomId || !roomSocket.connected || !roomSocket.id) return;
-      const previous = latest.current;
-      // A fresh socket may be talking to a restarted server whose revisions begin at zero.
-      if (previous?.socketId === roomSocket.id && state.revision < previous.state.revision) return;
-      const next = { state, receivedAt: performance.now(), socketId: roomSocket.id };
+      const next = receiveTimer(latest.current, state, performance.now(), roomSocket.id);
+      if (next === latest.current) return;
       latest.current = next;
       setReceived(next);
       setNow(next.receivedAt);
       setError(null);
     };
+    const onDisconnect = () => {
+      // Invalidate acknowledgements immediately, before React renders connection changes.
+      requestId.current++;
+      pendingRef.current = false;
+      setPending(false);
+    };
     roomSocket.on('timer:state', onState);
+    roomSocket.on('disconnect', onDisconnect);
     return () => {
       requestId.current++;
       pendingRef.current = false;
       roomSocket.off('timer:state', onState);
+      roomSocket.off('disconnect', onDisconnect);
     };
   }, [roomId]);
 
@@ -76,15 +78,15 @@ export function useRoomTimer(roomId: string, connection: ConnectionStatus) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [request]);
 
+  const state = received?.state.roomId === roomId ? received.state : null;
+  const running = state?.status === 'running';
   useEffect(() => {
-    if (received?.state.status !== 'running') return;
+    if (!running) return;
     const interval = window.setInterval(() => setNow(performance.now()), 250);
     return () => window.clearInterval(interval);
-  }, [received]);
+  }, [running]);
 
-  const state = received?.state.roomId === roomId ? received.state : null;
-  const elapsed = state?.status === 'running' && received ? Math.max(0, now - received.receivedAt) : 0;
-  const remainingMs = state ? Math.max(0, state.remainingMs - elapsed) : 0;
+  const remainingMs = remainingTimerMs(state ? received : null, now);
   const seconds = Math.ceil(remainingMs / 1000);
   const formattedTime = state ? `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}` : '--:--';
   const synchronized = Boolean(state && received?.socketId === roomSocket.id && roomSocket.connected && connection === 'connected');

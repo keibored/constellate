@@ -9,7 +9,7 @@ export function RoomScene({ members, children }: { members: MemberPresence[]; ch
     <section className="room-scene" id="room" aria-label="Cozy nighttime study room">
       <RoomDecor />
       <div className="room-scene-caption"><Moon size={12} /><span>MOONLIT LIBRARY</span><span className="caption-line" /></div>
-      <div className="desk-stations">{([0, 1, 2] as const).map(slot => <StudyDesk key={slot} slot={slot} member={members[slot]} />)}</div>
+      <div className="desk-stations">{([0, 1, 2] as const).map(slot => <StudyDesk key={slot} slot={slot} member={members.find(member => member.deskId === `desk-${slot + 1}`)} />)}</div>
       {children}
       <div className="room-floor-message"><Sparkles size={15} /><span>you're doing great.</span></div>
       <span className="scene-corner-star" aria-hidden="true">✧</span>

@@ -1,4 +1,5 @@
 import type { AvatarId } from '../../../../shared/presence';
+import { guestStorage } from '../../services/localStorage';
 
 export interface LocalIdentity {
   userId: string;
@@ -12,22 +13,22 @@ const isUserId = (value: unknown): value is string => typeof value === 'string' 
 
 export function getGuestUserId(): string {
   let previous: unknown;
-  try { previous = JSON.parse(localStorage.getItem(IDENTITY_STORAGE_KEY) ?? 'null')?.userId; }
+  try { previous = JSON.parse(guestStorage.get(IDENTITY_STORAGE_KEY) ?? 'null')?.userId; }
   catch { /* A malformed profile should not prevent creating a guest. */ }
-  const saved = localStorage.getItem(USER_ID_STORAGE_KEY);
+  const saved = guestStorage.get(USER_ID_STORAGE_KEY);
   // Keep existing profiles intact. getRandomValues also works on LAN HTTP origins
   // where randomUUID is unavailable because the page is not a secure context.
   const userId = isUserId(previous) ? previous : isUserId(saved) ? saved
     : typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
-    : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
-  localStorage.setItem(USER_ID_STORAGE_KEY, userId);
+    : createUuid();
+  guestStorage.set(USER_ID_STORAGE_KEY, userId);
   return userId;
 }
 
 export function getLocalIdentity(): LocalIdentity | null {
   try {
     getGuestUserId();
-    const value: unknown = JSON.parse(localStorage.getItem(IDENTITY_STORAGE_KEY) ?? 'null');
+    const value: unknown = JSON.parse(guestStorage.get(IDENTITY_STORAGE_KEY) ?? 'null');
     if (!value || typeof value !== 'object') return null;
     const identity = value as Record<string, unknown>;
     if (typeof identity.userId !== 'string' || !/^[a-zA-Z0-9_-]{8,64}$/.test(identity.userId)) return null;
@@ -44,6 +45,14 @@ export function isNickname(nickname: string) {
 export function saveLocalIdentity(nickname: string, avatar: AvatarId): LocalIdentity {
   if (!isNickname(nickname)) throw new Error('Choose a nickname with 1–24 characters.');
   const identity = { userId: getGuestUserId(), nickname: nickname.trim(), avatar };
-  localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+  guestStorage.set(IDENTITY_STORAGE_KEY, JSON.stringify(identity));
   return identity;
+}
+
+function createUuid() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

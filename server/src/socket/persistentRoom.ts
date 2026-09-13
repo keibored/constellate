@@ -39,7 +39,7 @@ export function attachPersistentRoomHandlers(
       try {
         // Authorization is checked at receipt. A committed change must reach the
         // original room even if its requester navigates away during the query.
-        const state = action ? await repository.mutate(roomId, action) : await repository.load(roomId);
+        const state = action ? await repository.mutate(roomId, action) : await repository.load(roomId, false);
         if (action) broadcast(state);
         else if (socket.connected && member(roomId)) socket.emit('room:state', state);
         if (typeof acknowledge === 'function') acknowledge({ ok: true });

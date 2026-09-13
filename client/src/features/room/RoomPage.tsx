@@ -9,6 +9,7 @@ import { JoinRoomDialog } from '../presence/JoinRoomDialog';
 import { RoomChat } from '../chat/RoomChat';
 import { ReactionsPanel } from '../reactions/ReactionsPanel';
 import { TaskBoard } from '../tasks/TaskBoard';
+import { useRoomState } from '../tasks/useRoomState';
 import { FocusTimer } from '../timer/FocusTimer';
 import { EncouragementCard } from './EncouragementCard';
 import { RoomInfoCard } from './RoomInfoCard';
@@ -17,15 +18,22 @@ import { RoomSettings } from './RoomSettings';
 
 export function RoomPage({ roomId }: { roomId: string }) {
   const [identity, setIdentity] = useState(getLocalIdentity);
-  const [roomName, setRoomName] = useState(mockRoom.name);
-  const { members, connection, error, updateStatus, statusError } = useRoomPresence(roomId, identity);
-  const room = { ...mockRoom, id: roomId, name: roomName, code: `r/${roomId}`, members };
+  const { members, connection, error, reconnect, leave, updateStatus, statusError } = useRoomPresence(roomId, identity);
+  const [leaving, setLeaving] = useState(false);
+  const leaveRoom = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    await leave();
+    window.location.assign('/join');
+  };
+  const savedRoom = useRoomState(roomId, connection);
+  const room = { ...mockRoom, id: roomId, name: savedRoom.state?.room.name ?? mockRoom.name, code: `r/${roomId}`, members };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dimmed, setDimmed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFallback, setCopyFallback] = useState(false);
-  const roomUrl = new URL(`/room/${roomId}`, window.location.origin).href;
+  const roomUrl = new URL(`/r/${roomId}`, window.location.origin).href;
 
   useEffect(() => { document.title = `${room.name} · Constellate`; }, [room.name]);
   useEffect(() => { if (!copied) return; const timeout = window.setTimeout(() => setCopied(false), 3500); return () => window.clearTimeout(timeout); }, [copied]);
@@ -36,13 +44,13 @@ export function RoomPage({ roomId }: { roomId: string }) {
   return (
     <div className={`app-shell${dimmed ? ' lights-dimmed' : ''}${reducedMotion ? ' reduced-motion' : ''}`}>
       <a href="#room" className="skip-link">Skip to study room</a>
-      <Navbar onSettings={() => setSettingsOpen(true)} dimmed={dimmed} onToggleLights={() => setDimmed(!dimmed)} />
+      <Navbar onSettings={() => setSettingsOpen(true)} dimmed={dimmed} onToggleLights={() => setDimmed(!dimmed)} onHome={() => { void leaveRoom(); }} />
       <main className="room-layout">
         <div className="room-column"><div className="space-heading"><span><span aria-hidden="true">✧</span> A SPACE TO FOCUS, TOGETHER</span><span className="space-heading-right">take a breath. you're here.</span></div>
-          <RoomScene members={members}><RoomInfoCard room={room} onRename={setRoomName} onInvite={copyLink} copied={copied} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard /></RoomScene>
+          <RoomScene members={members}><RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} /></RoomScene>
           <div className="room-bottom-caption"><span><span className="status-dot status-dot--coding" />a little company goes a long way</span><span>same stars, different desks <span aria-hidden="true">✦</span></span></div>
         </div>
-        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel members={members} currentUserId={identity?.userId} connection={connection} error={error} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={identity?.userId} connection={connection} /><ReactionsPanel /><EncouragementCard /></aside>
+        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel members={members} currentUserId={identity?.userId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={identity?.userId} connection={connection} /><ReactionsPanel /><EncouragementCard /></aside>
       </main>
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>
       <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} />
