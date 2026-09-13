@@ -8,6 +8,11 @@
     "server"
   ],
   "scripts": {
+    "db:setup": "npm run db:setup --prefix server",
+    "db:start": "npm run db:start --prefix server",
+    "db:stop": "npm run db:stop --prefix server",
+    "db:migrate": "npm run db:migrate --prefix server",
+    "test:db": "npm run test:db --prefix server",
     "dev": "concurrently -k -n client,server -c cyan,magenta \"npm run dev --prefix client\" \"npm run dev --prefix server\"",
     "dev:client": "npm run dev --prefix client",
     "dev:server": "npm run dev --prefix server",

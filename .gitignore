@@ -15,6 +15,7 @@ dist/
 .vite-cache/
 
 # Local environment files
+.local/
 .env
 .env.*
 !.env.example
