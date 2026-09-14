@@ -46,7 +46,7 @@ test('malformed profiles recover and insecure origins can generate an ID without
   t.after(() => Object.defineProperty(globalThis, 'crypto', previous));
   assert.equal(getLocalIdentity(), null);
   const id = getGuestUserId();
-  assert.match(id, /^[a-f0-9]{32}$/);
+  assert.match(id, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
   assert.equal(saveLocalIdentity('guest', 'green').userId, id);
   assert.throws(() => saveLocalIdentity('  ', 'dark'));
 });

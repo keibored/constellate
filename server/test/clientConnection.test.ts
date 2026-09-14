@@ -132,3 +132,60 @@ test('rejections and exhausted transport retries show an error without disconnec
   assert.equal(f.connections.at(-1), 'error');
   assert.match(f.errors.at(-1)!, /Cannot reach/);
 });
+
+test('reconnect reads the latest saved status, restores the existing room and retries transient database failures', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const socket = new FakeSocket();
+  let status: 'reading' | 'break' = 'reading';
+  let joined = 0;
+  const connections: ConnectionStatus[] = [];
+  const subscription = connectRoom(socket as unknown as RoomSocket, 'demo', { id: 'guest-user-kei', nickname: 'kei', avatar: 'pink' }, {
+    connection: value => connections.push(value), error: () => {}, disconnected: () => {},
+    savedStatus: () => status, joined: () => { joined++; },
+  });
+  t.after(() => subscription.dispose());
+  assert.equal((socket.sent[0].payload as { status: string }).status, 'reading');
+  socket.sent[0].acknowledge(null, { ok: true });
+  status = 'break';
+  socket.disconnect(); socket.connect();
+  assert.deepEqual(socket.sent[1].payload, { roomId: 'demo', user: { id: 'guest-user-kei', nickname: 'kei', avatar: 'pink' }, status: 'break', restore: true });
+  socket.sent[1].acknowledge(null, { ok: false, error: 'Database recovering', retryable: true });
+  assert.equal(connections.at(-1), 'reconnecting');
+  t.mock.timers.tick(5_000);
+  socket.sent[2].acknowledge(null, { ok: true });
+  assert.equal(joined, 2);
+  assert.equal(connections.at(-1), 'connected');
+  assert.equal(socket.connects, 2, 'database retry uses the existing socket');
+});
+
+test('explicit leave cancels recovery, waits for its acknowledgement, and cannot be rejoined by a stale callback', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t);
+  f.socket.sent[0].acknowledge(new Error('timeout'));
+  const leaving = f.subscription.leave();
+  assert.equal(f.socket.sent.at(-1)?.event, 'room:leave');
+  assert.equal(f.socket.connected, true, 'leave is delivered before disconnect');
+  f.socket.sent.at(-1)!.acknowledge(null, { ok: true });
+  await leaving;
+  t.mock.timers.tick(60_000);
+  f.socket.sent[0].acknowledge(null, { ok: true });
+  f.subscription.retry();
+  assert.equal(f.socket.sent.filter(item => item.event === 'room:join').length, 1);
+  assert.equal(f.connections.at(-1), 'idle');
+  assert.equal(f.socket.connected, false);
+});
+
+test('a missing restored room shows an error without an automatic create or retry', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const socket = new FakeSocket();
+  let missing = 0;
+  const subscription = connectRoom(socket as unknown as RoomSocket, 'deleted-room', { id: 'guest-user-kei', nickname: 'kei', avatar: 'dark' }, {
+    connection: () => {}, error: () => {}, disconnected: () => {}, restore: true, missing: () => { missing++; },
+  });
+  t.after(() => subscription.dispose());
+  assert.equal((socket.sent[0].payload as { restore: boolean }).restore, true);
+  socket.sent[0].acknowledge(null, { ok: false, error: 'Gone', code: 'ROOM_NOT_FOUND' });
+  t.mock.timers.tick(60_000);
+  assert.equal(socket.sent.length, 1);
+  assert.equal(missing, 1);
+});

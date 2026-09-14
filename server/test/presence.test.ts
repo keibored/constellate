@@ -4,6 +4,7 @@ import { test, type TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { io, type Socket } from 'socket.io-client';
 import { createAppServer } from '../src/app.js';
+import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import { DISCONNECT_GRACE_MS, RoomPresence } from '../src/socket/roomPresence.js';
 import type { ClientToServerEvents, ServerToClientEvents, RoomJoinPayload, RoomUser, PresenceUpdated, StatusUpdatePayload } from '../../shared/presence.js';
 import type { TimerStatePayload, TimerRequest } from '../../shared/timer.js';
@@ -23,7 +24,7 @@ async function until(condition: () => boolean, label: string) {
 }
 
 async function fixture(t: TestContext) {
-  const server = createAppServer([origin], graceMs);
+  const server = createAppServer([origin], new TestRoomRepository(), graceMs);
   server.httpServer.listen(0, '127.0.0.1');
   await once(server.httpServer, 'listening');
   const address = server.httpServer.address();
@@ -54,7 +55,7 @@ test('health, full list and incremental joins work; repeated joins stay unique',
   const response = await fetch(`${f.url}/api/health`, { headers: { Origin: origin } });
   assert.deepEqual(await response.json(), { status: 'ok' });
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
-  assert.equal(DISCONNECT_GRACE_MS, 8_000);
+  assert.equal(DISCONNECT_GRACE_MS, 15_000);
 
   const a = await f.connect();
   const lists: string[][] = [], joins: string[] = [];
@@ -103,7 +104,9 @@ test('disconnect retains presence briefly; rejoining cancels removal and keeps c
   await f.join(a);
   const connectedAt = f.presence.list('demo').find(member => member.userId === kei.id)?.connectedAt;
   const left: string[] = [];
+  const joined: string[] = [];
   observer.on('presence:left', event => left.push(event.userId));
+  observer.on('presence:joined', event => joined.push(event.member.userId));
   a.disconnect();
   assert.equal(f.presence.list('demo').length, 2);
   const refreshed = await f.connect();
@@ -112,9 +115,43 @@ test('disconnect retains presence briefly; rejoining cancels removal and keeps c
   assert.equal(f.presence.list('demo').length, 2);
   assert.equal(f.presence.list('demo').find(member => member.userId === kei.id)?.connectedAt, connectedAt);
   assert.deepEqual(left, []);
+  assert.deepEqual(joined, [], 'returning within grace does not announce a new guest');
   refreshed.disconnect();
   await until(() => left.length === 1, 'last connection grace expiry');
   assert.deepEqual(left, [kei.id]);
+});
+
+test('saved status restores after a server restart but cannot overwrite a connected tab or remembered room status', () => {
+  const presence = new RoomPresence(() => {});
+  try {
+    const first = presence.join('demo', kei, 'socket-a', 'reading');
+    assert.equal(first.member.status, 'reading');
+    assert.equal(first.joined, true);
+    presence.updateStatus('demo', kei.id, 'socket-a', 'break');
+    const second = presence.join('demo', kei, 'socket-b', 'coding');
+    assert.equal(second.member.status, 'break');
+    assert.equal(second.joined, false);
+    assert.equal(presence.list('demo').length, 1);
+    presence.leave('demo', kei.id, 'socket-a', true);
+    assert.equal(presence.list('demo')[0].connected, true);
+    presence.leave('demo', kei.id, 'socket-b', true);
+    assert.equal(presence.join('demo', kei, 'socket-c', 'coding').member.status, 'break');
+    assert.equal(presence.join('another-room', kei, 'socket-d').member.status, 'coding');
+    presence.dispose();
+    assert.equal(presence.join('demo', kei, 'socket-e', 'reading').member.status, 'reading');
+  } finally { presence.dispose(); }
+});
+
+test('room joins validate saved status and restoration flags without creating invalid presence', async t => {
+  const f = await fixture(t);
+  const socket = await f.connect();
+  for (const extra of [{ status: 'fake' }, { status: null }, { status: [] }, { restore: 'true' }]) {
+    const result = await socket.timeout(2000).emitWithAck('room:join', { roomId: 'demo', user: kei, ...extra } as RoomJoinPayload);
+    assert.equal(result.ok, false);
+  }
+  assert.deepEqual(f.presence.list('demo'), []);
+  assert.deepEqual(await socket.timeout(2000).emitWithAck('room:join', { roomId: 'demo', user: kei, status: 'reading' }), { ok: true });
+  assert.equal(f.presence.list('demo')[0].status, 'reading');
 });
 
 test('the same user stays until their final socket disconnects, with one left event', async t => {

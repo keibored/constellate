@@ -77,6 +77,8 @@ test('SQL migrations are repeatable; room transactions persist metadata/tasks, s
   await assert.rejects(f.repository.mutate('other', { kind: 'delete', taskId: first.tasks[0].id }), /no longer exists/);
   await f.pool.query('DELETE FROM rooms WHERE id = $1', ['demo']);
   assert.equal((await f.pool.query('SELECT count(*)::int AS count FROM tasks WHERE room_id = $1', ['demo'])).rows[0].count, 0);
+  await assert.rejects(f.repository.load('demo', false), /no longer exists/);
+  assert.equal((await f.pool.query('SELECT count(*)::int AS count FROM rooms WHERE id = $1', ['demo'])).rows[0].count, 0, 'recovery cannot recreate a deleted room');
   const columns = await f.pool.query(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name IN ('rooms', 'tasks')`);
   assert.ok(columns.rows.every(row => !/socket|online|connected|presence/.test(row.column_name)), 'live presence is not stored');
   await f.pool.query("UPDATE schema_migrations SET checksum = 'changed' WHERE version = $1", ['001_create_rooms.sql']);
@@ -131,6 +133,12 @@ test('real PostgreSQL Socket.IO actions synchronize after commit, validate owner
   assert.deepEqual(await a.socket.timeout(2000).emitWithAck('timer:start', { roomId: 'demo' }), { ok: true });
   assert.equal(app.timers.current('demo').status, 'running');
   assert.deepEqual(await b.socket.timeout(2000).emitWithAck('chat:send', { roomId: 'demo', content: 'still here' }), { ok: true });
+  await f.pool.query('DELETE FROM rooms WHERE id = $1', ['other']);
+  const missing = await stranger.socket.timeout(2000).emitWithAck('room:join', { roomId: 'other', user: kei, restore: true });
+  assert.equal(missing.ok, false);
+  assert.equal(!missing.ok && missing.code, 'ROOM_NOT_FOUND');
+  assert.equal((await other.socket.timeout(2000).emitWithAck('tasks:sync', { roomId: 'other' })).ok, false);
+  assert.equal((await f.pool.query('SELECT count(*)::int AS count FROM rooms WHERE id = $1', ['other'])).rows[0].count, 0);
 });
 
 test('room name, tasks and completion survive stopping and restarting the actual backend process', async t => {
