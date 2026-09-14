@@ -131,3 +131,35 @@ test('disposal cancels completion and clears state; invalid transitions and sync
   assert.equal(timers.current('demo').status, 'idle');
   assert.equal(timers.current('demo').revision, 0);
 });
+
+test('a late duplicate Start settles focus completion without accidentally starting the break', t => {
+  const { timers, changes, tick } = clockFixture(t);
+  timers.apply('demo', 'start');
+  // The server is past the deadline, but its completion callback has not run yet.
+  t.mock.timers.setTime(1_000_000 + TIMER_DURATIONS.focus + 1);
+  const lateStart = timers.apply('demo', 'start');
+  assert.equal(lateStart.state.phase, 'shortBreak');
+  assert.equal(lateStart.state.status, 'idle');
+  assert.equal(lateStart.state.revision, 2);
+  assert.equal(changes.length, 2, 'one start and one completion broadcast');
+  tick(TIMER_DURATIONS.shortBreak);
+  assert.equal(changes.length, 2, 'a stale Start did not schedule a break timeout');
+  assert.equal(timers.apply('demo', 'start').state.status, 'running', 'a new Start can explicitly begin the break');
+});
+
+test('sync or pause at an overdue deadline reports the completion broadcast, avoiding a duplicate reply', t => {
+  const { timers, changes, tick } = clockFixture(t);
+  for (const action of ['sync', 'pause', 'resume'] as const) {
+    timers.apply(action, 'start');
+    t.mock.timers.setTime(Date.now() + TIMER_DURATIONS.focus + 1);
+    const before = changes.length;
+    const result = timers.apply(action, action);
+    assert.equal(result.changed, true, 'the socket handler must not send the already-broadcast state again');
+    assert.equal(result.state.status, 'idle');
+    assert.equal(result.state.phase, 'shortBreak');
+    assert.equal(result.state.remainingMs, TIMER_DURATIONS.shortBreak);
+    assert.equal(changes.length, before + 1);
+    tick(1);
+    assert.equal(changes.length, before + 1, 'the delayed callback cannot complete twice');
+  }
+});

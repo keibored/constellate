@@ -4,6 +4,7 @@ import { test, type TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { io, type Socket } from 'socket.io-client';
 import { createAppServer } from '../src/app.js';
+import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import { RoomChat, MAX_MESSAGES_PER_ROOM, CHAT_RATE_WINDOW_MS } from '../src/socket/roomChat.js';
 import type { ClientToServerEvents, ServerToClientEvents, MemberPresence, RoomUser } from '../../shared/presence.js';
 import type { ChatHistory, ChatMessage, ChatSendPayload } from '../../shared/chat.js';
@@ -20,7 +21,7 @@ async function until(condition: () => boolean, label: string) {
 }
 
 async function fixture(t: TestContext) {
-  const server = createAppServer([origin], 100);
+  const server = createAppServer([origin], new TestRoomRepository(), 100);
   server.httpServer.listen(0, '127.0.0.1');
   await once(server.httpServer, 'listening');
   const address = server.httpServer.address();
