@@ -1,11 +1,11 @@
 import { BookOpen, Moon, Settings2, Users } from 'lucide-react';
 
-interface NavbarProps { onSettings: () => void; dimmed: boolean; onToggleLights: () => void }
+interface NavbarProps { onSettings: () => void; dimmed: boolean; onToggleLights: () => void; onHome: () => void }
 
-export function Navbar({ onSettings, dimmed, onToggleLights }: NavbarProps) {
+export function Navbar({ onSettings, dimmed, onToggleLights, onHome }: NavbarProps) {
   return (
     <header className="navbar">
-      <a href="/room/demo" className="brand" aria-label="Constellate home">
+      <a href="/join" className="brand" aria-label="Constellate home" onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); onHome(); } }}>
         <span className="brand-star" aria-hidden="true">✦</span>
         <span><span className="brand-name">Constellate</span><span className="brand-tagline">study together, further</span></span>
       </a>

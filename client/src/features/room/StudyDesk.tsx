@@ -1,13 +1,14 @@
 import type { MemberPresence } from '../../../../shared/presence';
 import { Plant } from './RoomDecor';
+import { statusDetails } from '../presence/statusOptions';
 
 export function StudyDesk({ member, slot }: { member?: MemberPresence; slot: 0 | 1 | 2 }) {
   const deskStyle = member ? member.status === 'reading' ? 'mika' : member.status === 'dying' ? 'ari' : 'kei' : ['kei', 'mika', 'ari'][slot];
-  const activity = member?.status === 'dying' ? 'resting their head on the desk' : member?.status === 'reading' ? 'reading a book' : member?.status === 'break' ? 'taking a break' : 'working on a laptop';
+  const status = member ? statusDetails[member.status] : null;
   return (
-    <div className={`study-desk study-desk--slot-${slot} study-desk--${deskStyle}${member ? '' : ' study-desk--empty'}${member?.status === 'break' ? ' study-desk--break' : ''}`} data-user-id={member?.userId}>
-      <div className="desk-member-label">{member ? <><span className={`status-dot status-dot--${member.status}`} /><strong>{member.nickname}</strong><span className="desk-status">{member.status}</span></> : <span>empty desk</span>}</div>
-      <div className="desk-art" role="img" aria-label={member ? `${member.nickname} ${activity}` : 'An empty study desk'}>
+    <div className={`study-desk study-desk--slot-${slot} study-desk--${deskStyle}${member ? '' : ' study-desk--empty'}${member?.status === 'break' ? ' study-desk--break' : ''}`} data-user-id={member?.userId} data-desk-id={`desk-${slot + 1}`}>
+      <div className="desk-member-label">{member && status ? <><span className={`status-dot status-dot--${member.status}`} /><strong>{member.nickname}</strong><span className="desk-status"><span aria-hidden="true">{status.icon}</span> {status.label}</span></> : <span>empty desk</span>}</div>
+      <div className="desk-art" role="img" aria-label={member && status ? `${member.nickname} ${status.activity}` : 'An empty study desk'}>
         <div className="desk-shadow" /><div className="desk-chair"><span /></div>
         {member && <div className={`character character--${deskStyle} character-avatar--${member.avatar}${member.status === 'break' ? ' character--break' : ''}`}>
           <span className="character-leg leg-left" /><span className="character-leg leg-right" />
@@ -31,7 +32,7 @@ export function StudyDesk({ member, slot }: { member?: MemberPresence; slot: 0 |
           <div className="open-book"><i /><i /></div><div className="reading-notebook" />
         </>}
         {deskStyle === 'ari' && <>
-          <div className="desk-notebook" />{member && <span className="tired-cloud">... zZ</span>}
+          <div className="desk-notebook" />{member?.status === 'dying' && <span className="tired-cloud">... zZ</span>}
         </>}
         <div className="desk-mug"><span /></div><div className="desk-book-stack"><i /><i /></div>
       </div>
