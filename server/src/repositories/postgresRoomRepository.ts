@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { RoomStatePayload, RoomTask } from '../../../shared/roomState.js';
 import { RoomNotFoundError, RoomStateError, type RoomMutation, type RoomRepository } from './roomRepository.js';
+import { insertStudyActivity } from '../db/studyActivity.js';
 
 interface RoomRow { id: string; name: string; revision: number; created_at: Date; updated_at: Date }
 interface TaskRow {
@@ -69,6 +70,11 @@ export class PostgresRoomRepository implements RoomRepository {
     else {
       if (task.completed === action.completed) return false;
       await client.query('UPDATE tasks SET completed = $3, updated_at = clock_timestamp() WHERE room_id = $1 AND id = $2', [room.id, action.taskId, action.completed]);
+      if (action.completed && action.contribution) {
+        const now = action.contribution.at;
+        await insertStudyActivity(client, { kind: 'activity', activity: 'task', sessionId: action.contribution.sessionId,
+          referenceId: task.id, start: now, end: now, focusMs: 0 }, { roomId: room.id, guestId: action.contribution.guestId });
+      }
     }
     return true;
   }

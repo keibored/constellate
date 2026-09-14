@@ -3,7 +3,7 @@ import type { RoomUser } from '../../../shared/presence.js';
 
 export type RoomMutation =
   | { kind: 'create'; title: string; requestId: string; creator: RoomUser }
-  | { kind: 'toggle'; taskId: string; completed: boolean }
+  | { kind: 'toggle'; taskId: string; completed: boolean; contribution?: { sessionId: string; guestId: string; at: number } }
   | { kind: 'delete'; taskId: string }
   | { kind: 'rename'; name: string };
 
