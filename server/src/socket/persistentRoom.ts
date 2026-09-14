@@ -4,6 +4,7 @@ import type { RoomStatePayload } from '../../../shared/roomState.js';
 import { RoomStateError, type RoomMutation, type RoomRepository } from '../repositories/roomRepository.js';
 import { databaseErrorCode } from '../db/pool.js';
 import { readRoomId } from './validation.js';
+import type { StudySessionService } from '../services/studySessionService.js';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value);
@@ -12,6 +13,7 @@ export function attachPersistentRoomHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>, repository: RoomRepository,
   member: (roomId: string) => RoomUser | null,
   broadcast: (state: RoomStatePayload) => void,
+  studies?: StudySessionService,
 ) {
   for (const operation of ['tasks:sync', 'task:create', 'task:toggle', 'task:delete', 'room:rename'] as const) {
     socket.on(operation, async (input: unknown, acknowledge?: (result: RoomResult) => void) => {
@@ -37,6 +39,12 @@ export function attachPersistentRoomHandlers(
         action = { kind: 'rename', name: payload.name.trim() };
       }
       try {
+        if (action?.kind === 'toggle' && action.completed && studies) {
+          const sessionId = studies.sessionId(roomId, creator.id);
+          if (!sessionId) { fail('Rejoin the room before completing a task.'); return; }
+          action.contribution = { sessionId, guestId: creator.id, at: Date.now() };
+          await studies.flush();
+        }
         // Authorization is checked at receipt. A committed change must reach the
         // original room even if its requester navigates away during the query.
         const state = action ? await repository.mutate(roomId, action) : await repository.load(roomId, false);

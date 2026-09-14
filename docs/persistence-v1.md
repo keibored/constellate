@@ -119,7 +119,7 @@ Mutation/sync acknowledgements use the existing `{ ok: true }` or `{ ok: false, 
 
 Task records include ID, room ID, title, completion, creator details, request ID and timestamps. Shared TypeScript contracts live in `shared/roomState.d.ts` and `shared/presence.d.ts`. Existing presence, chat and Pomodoro events are retained.
 
-Room names and tasks survive backend and database restarts. Active Pomodoro state, presence, remembered statuses and recent chat remain in memory and reset on backend restart. Reactions retain their existing local behavior. No timer rewrite, authentication pages or UI redesign is included.
+Room names and tasks survive backend and database restarts. Active Pomodoro state, presence and recent chat remain in memory and reset on backend restart. The later [guest recovery milestone](guest-recovery-v1.md) restores room-specific status preferences from localStorage as clients rebuild presence. Reactions retain their existing local behavior. No timer rewrite, authentication pages or UI redesign is included.
 
 ## Verification commands
 
@@ -138,7 +138,7 @@ The regular suite uses a test-only repository. The database suite requires the s
 3. B completes the first task. A sees it completed. Uncomplete and complete again; both views agree.
 4. A adds then deletes a disposable task using its remove button. B sees it disappear.
 5. Rename the room to **Tomorrow together**. Refresh each browser. Name, task IDs/content, completion and the two-member count remain correct.
-6. Stop only the backend (use separate app terminals for this check), then restart `npm run dev:server`. Rejoin or click Reconnect if its retry budget expired. The same room name and saved tasks return, including the completed first task. Presence is rebuilt without duplicate guests. Active timer and chat are intentionally not persisted.
+6. Stop only the backend (use separate app terminals for this check), then restart `npm run dev:server`. Browsers reconnect automatically. The same room name and saved tasks return, including the completed first task. Presence is rebuilt without duplicate guests. Active timer and chat are intentionally not persisted. A terminal join failure still offers Reconnect.
 7. Open `/r/another-study-room`. Its task board starts empty and edits stay isolated from the first room. Existing `/room/...` aliases and copied invite URLs still join their matching room.
 8. In A/B, start, pause, resume and reset the Pomodoro. Both displays agree. Change a guest status and verify both Members and desks update.
 9. Send a chat message in each direction. Verify one copy per view. Click the existing reaction controls and confirm their local animation/recent reaction behavior still works.
