@@ -1,170 +1,105 @@
 # Constellate
 
-A cozy shared study room built with React, TypeScript, Express, and Socket.IO.
+A cozy collaborative study room built with React, TypeScript, Vite, Express and Socket.IO. Rooms include persistent guest identity, presence/statuses, a shared Pomodoro, chat, live reactions, shared tasks and study statistics. **Voice V1** adds optional, audio-only WebRTC in the existing Members panel.
 
-The current milestone is **Study Session History + Stats V1**. The Stats navigation view shows personal Today/All time totals, recent study visits and separate room aggregates, backed by PostgreSQL. A stable local guest ID, profile and room-specific status survive refresh/reopen, and connected clients recover automatically after network outages or backend restart. Room names and shared tasks remain persisted in PostgreSQL. The backend owns each room's synchronized Pomodoro, presence and chat in memory. `/r/demo` and `/r/test-room` use the same reusable route; existing `/room/...` links remain supported. Both route forms extract the same room ID (`demo`, for example), which is also the unique PostgreSQL room ID. The server namespaces its Socket.IO channels as `room:demo`. Room IDs accept 1–64 letters, numbers, hyphens, or underscores, starting with a letter or number.
+PostgreSQL owns durable rooms/tasks/history. Redis owns shared live room state and carries Socket.IO events between backend instances. WebRTC carries voice between browsers; Socket.IO only carries signaling. No camera, recording, media upload, SFU or paid voice service is included.
 
-## Run locally
+## Start locally
 
-```sh
-npm install
-npm run db:setup
-npm run db:start
-npm run db:migrate
-npm run dev
+From the repository root on Windows PowerShell, first-time setup is:
+
+```powershell
+npm.cmd install
+npm.cmd run db:setup
+npm.cmd run redis:setup
+npm.cmd run db:start
+npm.cmd run redis:start
+npm.cmd run db:migrate
+npm.cmd run dev
 ```
 
-Run these commands from the repository root. `db:setup` initializes a project-local PostgreSQL instance, generates credentials in ignored `server/.env`, and creates separate development and test databases. It is a first-time step; it preserves an existing configuration and data. `db:start` starts PostgreSQL in the background on loopback port **5432**. `db:migrate` applies the SQL schema and is safe to rerun. Keep `server/.env` and `server/.local/postgres`; they contain the credentials and persistent data. No global PostgreSQL installation or Docker is needed.
+For this workspace, the project-local services and ignored `server/.env` are already configured. Subsequent starts require:
 
-On subsequent starts, run `npm run db:start`, `npm run db:migrate`, and `npm run dev`. The existing `concurrently` command starts both Vite and Express/Socket.IO and stops its companion if either process exits. Open `http://localhost:5173/r/demo`. Vite uses port **5173** and the backend uses port **3000** by default. `GET http://127.0.0.1:3000/api/health` returns `{"status":"ok"}`; `http://localhost:5173/api/health` reaches the same API through Vite. `/api/ready` also checks PostgreSQL and returns 503 when the database is unavailable. Both app processes and PostgreSQL are required. In PowerShell environments that block `npm.ps1`, use `npm.cmd` in place of `npm`.
-
-Use Ctrl+C to stop the app, then `npm run db:stop` to stop PostgreSQL cleanly without deleting saved data. Database logs are in `server/.local/postgres.log`. For an existing PostgreSQL installation, configure `DATABASE_URL` yourself and skip the project-local setup/start/stop commands. See [the persistence guide](docs/persistence-v1.md) for the schema, event contract, external database configuration and verification steps.
-
-`cd client` followed by `npm run dev` starts **only Vite**. If the backend is stopped, Vite reports `ECONNREFUSED 127.0.0.1:3000` for `/socket.io` and API requests. Stop that client process with Ctrl+C, return to the repository root with `cd ..`, and run `npm run dev`. Alternatively, run these commands from the root in two separate terminals:
-
-```sh
-# Terminal 1
-npm run dev:server
-# Terminal 2
-npm run dev:client
+```powershell
+npm.cmd run db:start
+npm.cmd run redis:start
+npm.cmd run db:migrate
+npm.cmd run dev
 ```
 
-If the frontend is already running on 5173 but the room cannot connect, start only `npm run dev:server`. Starting a second `npm run dev` fails on the occupied frontend port and stops its companion backend process. Check `/api/health` to confirm the backend is available before reloading the room or clicking Reconnect.
+Open **http://localhost:5173/r/demo**. Vite uses **5173**, Express/Socket.IO **3000**, PostgreSQL **5432**, and Redis **6379**. Once PostgreSQL and Redis are running and migrations are current, **`npm run dev` is the single command for both app processes**. It first checks ports, proxy configuration and dependencies, then uses `concurrently`; Vite starts only after the backend reports PostgreSQL and Redis ready. A failure reports the actual dependency and exits before starting the frontend. It never starts a second backend on an occupied port. Use `npm` instead of `npm.cmd` in shells where appropriate. The Windows Redis helper downloads a pinned, checksum-verified community portable build into ignored `server/.local/redis`; it makes no service, PATH or firewall changes. See the [Redis guide](docs/redis-runtime-v1.md) for other operating systems and external services.
 
-The backend requires `DATABASE_URL`. The local setup command has generated it for this workspace; do not overwrite that `server/.env` with the example file. For another database, copy `server/.env.example` to `server/.env` if no file exists and set `DATABASE_URL`. The client does not require an environment file; copy `client/.env.example` to `client/.env` only to customize its settings.
+`cd client; npm run dev` still does not start the backend. Its new predev check waits up to 20 seconds for backend readiness and exits with instructions if none is available. Previously, this command could leave Vite proxying to an absent backend. The old root command also started Vite before backend dependency checks completed; `tsx watch` could remain alive after its backend child failed, leaving Vite running with no port 3000 listener. Redis is now a required startup dependency in addition to PostgreSQL; Voice itself did not change the backend port. See [startup diagnosis and verification](docs/local-development.md).
 
-- Leave `VITE_SERVER_URL` empty for same-origin connections. Vite proxies `/socket.io` (polling and WebSocket upgrades with `ws: true`) and `/api` to the same backend target. Remove an old `VITE_SERVER_URL=http://localhost:3000` override to use this default. HTTP API calls should use relative `/api/...` URLs.
-- `PORT` in `server/.env` sets the backend port **and** Vite's `http://127.0.0.1:<PORT>` proxy target. Both use the same configuration loader and default to 3000. An inherited process `PORT` takes precedence over the file. The loader resolves `server/.env` independently of the working directory and does not expose backend environment variables to the browser. Restart both dev processes after environment changes.
-- Leave `SERVER_PROXY_TARGET` empty (or unset) in `client/.env` so it follows the backend automatically. An explicit URL still overrides the target for a backend on another host; remove an old fixed override when using the local server. No root `.env` file is used. Database credentials stay in the server environment.
-- `CLIENT_ORIGINS` is the comma-separated allowlist used for both polling CORS and WebSocket handshakes. Defaults allow `http://localhost:5173` and `http://127.0.0.1:5173`. Add the exact frontend origin when using a LAN address or another hostname; the proxy intentionally preserves the browser's Origin header. Vite uses port 5173 strictly so a busy port produces a clear error rather than silently moving to an unlisted origin.
-- For a deployed frontend with a separate backend, set `VITE_SERVER_URL` to the reachable backend origin at build time and allow the frontend origin in `CLIENT_ORIGINS`. For same-origin deployment, the hosting reverse proxy must forward `/socket.io` including WebSocket upgrades to the backend. The Vite development proxy is not included in static build output.
-- In development, the browser console logs `connected`, `disconnected`, `reconnecting`, `joined room`, and `room error` with useful context. These application logs are disabled in production. Check the two health URLs above when diagnosing an unavailable backend or proxy target.
+Stop older standalone client/backend terminals with Ctrl+C before using root `npm run dev`. The preflight refuses occupied app ports and does not kill or adopt existing processes. Separate app terminals remain supported: start `npm.cmd run dev:server`, wait for the listening message, then `npm.cmd run dev:client`. In the combined root terminal, Enter restarts the existing backend watcher; Ctrl+C stops both app processes. If startup failed, fix the dependency and rerun the root command.
 
-## Presence behavior
+Stop the app with Ctrl+C, then optionally stop the services without deleting data:
 
-- See [Guest identity and reconnect recovery](docs/guest-recovery-v1.md) for the localStorage keys, Leave flow, status precedence, file list, limitations and manual checks. Guest recovery itself requires no new environment variables or migrations; Study Stats requires migration 003 below.
-- `/` restores the last successfully joined room. If none is saved, it shows a small room-code form; `/join` always shows that form. Direct invite URLs take precedence. **Leave room** (the exit icon beside the room code) clears the saved active room, keeps the guest ID/profile/status preferences, and returns to `/join`. The home link performs the same clean leave. Refresh, tab closure and temporary disconnect do not clear the saved room. Leaving one tab retains the guest's other active sockets.
-- `client/src/services/socket.ts` owns one Socket.IO client per tab. `roomConnection.ts` owns acknowledged joins, connection state, timeout retries and lifecycle cleanup. `useRoomPresence` registers member listeners once per room/identity and removes those exact listeners on cleanup, including React StrictMode remounts.
-- `constellate_user_id` is created in localStorage on first opening. `constellate.identity` holds the existing `{ userId, nickname, avatar }` profile after the unchanged join dialog is completed. Existing profiles migrate without changing identity. IDs survive refresh and reconnect. Generation also works on LAN HTTP pages where `crypto.randomUUID` is unavailable.
-- **Identity decision:** regular tabs at the same origin share one guest and one desk. This preserves the requested persistent browser user ID and the existing architecture. To see two members, use a regular window plus an incognito window or another browser profile. Two same-origin regular tabs intentionally do not count as two users. Distinct guests per tab would require a separate session identity policy.
-- Shared event types live in `shared/presence.d.ts`. This declaration-only contract is consumed by both builds without introducing a shared runtime package.
-- `room:join` retains `{ roomId, user: { id, nickname, avatar } }` and accepts optional `status` and `restore` fields. `user.id` is the persistent guest ID. Successful joins acknowledge `{ ok: true }`; failures include an error, with a `retryable` flag for database outages or `ROOM_NOT_FOUND` code for a deleted restored room. It sends current members, room metadata/tasks, Pomodoro and recent chat. Full `presence:list` broadcasts remain room-scoped. `presence:joined` announces only a new member, so returning within grace does not cause repeated joined/left announcements. Existing server status takes precedence over a returning tab's saved status; a fresh server restores the local room-specific status, defaulting to `coding`.
-- `status:update` accepts `{ roomId, userId, status }` with `coding`, `reading`, `writing`, `studying`, `break`, or `dying`. The server rejects every other value and checks the socket's joined room/user metadata and its membership in that user's socket Set. Only status changes; nickname, avatar, desk, connected time and connection tracking stay intact. `presence:updated` broadcasts `{ roomId, member }` to everyone in that room, including the sender and their other tabs.
-- Only your own Members row has a status dropdown. `useRoomPresence.updateStatus` immediately overlays the choice on your row and desk while retaining authoritative server state underneath. Acknowledgements clear the overlay; rejection restores the latest server status and displays an error. Older acknowledgements cannot overwrite newer choices. A timeout reconnects for a fresh snapshot. Disconnected controls are disabled and choices are never queued offline.
-- A small in-memory map remembers the last selected status per room/user even after disconnect grace removes active presence. The browser also saves its own authoritative status in `constellate.room_statuses`, scoped by guest and room, and rereads it for each join. Rejoining within grace keeps `connectedAt`. Rejoining after grace creates a new presence entry with the remembered status. Server shutdown clears its map; the saved client preference supplies status when presence is rebuilt. No live presence is stored in PostgreSQL.
-- The server stores `Map<roomId, Map<userId, { member, sockets, removal }>>`. Each user's active sockets are held in a Set. Losing one connection does not remove their other connections.
-- After the final socket disconnects, removal waits **fifteen seconds from detection**. During grace the record has `connected: false`, but remains counted and retains its desk. A rejoin cancels removal, sets `connected: true`, and preserves the desk, status, and `connectedAt`. Otherwise the server emits `presence:left`, frees the desk, and broadcasts a full `presence:list`. Empty presence maps are deleted; PostgreSQL rooms and tasks remain saved. An explicit `room:leave` removes only that connection and removes the member immediately if it was their last connection.
-- Each Socket.IO `connect`, including reconnects, sends a fresh `room:join` with the same guest/profile and saved room status. The full list replaces stale local state; timer and task hooks request fresh authoritative snapshots. The UI reports connected only after successful acknowledgement. Transport failures use Socket.IO backoff (1–5 seconds, unlimited attempts while the page is active). An acknowledged transient database failure retries the join on the existing transport with a delay capped at five seconds. Silent join acknowledgements time out after five seconds with at most three attempts. Rejected joins, exhausted silent timeouts or a server-forced namespace disconnect show **Reconnect**. Stale acknowledgements/retries cannot update an unmounted or explicitly left room. Leave waits briefly for acknowledgement before disconnecting; browser unload uses grace.
-- `room:error` reports malformed payloads. Status errors carry `operation: 'status:update'` so they do not mark a healthy room connection as failed. Typed join/leave/status acknowledgements return `{ ok: true }` or `{ ok: false, error }`; raw clients without an acknowledgement are also handled safely.
-- Members contain `{ userId, nickname, avatar, status, connectedAt, connected, deskId }`. Socket IDs remain in the server's per-user Set, so one tab closing cannot remove another active connection. The server assigns `desk-1`, `desk-2`, or `desk-3`; overflow members have `deskId: null` and remain in the sidebar. Remaining occupants never shift positions when someone leaves. The earliest connected waiting guest takes a freed desk. The scene renders by server desk ID using the existing artwork and status labels.
-
-Guest identity remains anonymous, with one active backend serving room events. A backend restart clears live presence, active timers and chat history; clients rejoin automatically and restore their saved local status. Desk continuity is guaranteed during grace on the same server, not across restart or grace expiry. Room names, task titles, creators and completion state are stored in PostgreSQL. Restoring an existing room uses a read that cannot recreate a deleted room; its error screen offers Leave. Reactions retain their existing local demo behavior; this milestone adds no authentication, live reactions, voice or microphone functionality.
-
-## Persistent rooms and shared tasks
-
-Joining a room loads or creates its PostgreSQL row and sends its saved name and tasks. New rooms start with the existing default name, **Late night grind**, and an empty task board. Previous mock tasks and browser-local edits had no persistent storage to migrate. Invite URLs and localStorage guest IDs are unchanged.
-
-`task:create`, `task:toggle`, `task:delete` and `room:rename` validate the requesting socket's membership and inputs, then use parameterized SQL in a transaction. Every joined guest can edit the room's shared tasks and name. The server derives creator details from the joined guest, commits the database change, then broadcasts a full `room:state` snapshot to that room. `tasks:sync` requests the latest snapshot. The browser displays authoritative state and rejects older room revisions; offline controls are disabled. No live presence or socket IDs are stored in PostgreSQL.
-
-The schema, pooling/error handling, detailed event payloads, file list and restart test are documented in [Persistent Room State V1](docs/persistence-v1.md).
-
-## Study history and statistics
-
-Run `npm run db:migrate` to apply `003_study_sessions.sql`, then start the app normally. Open **Stats** in the existing room navigation, or use `/r/demo#stats`. The room stays connected while viewing history. No new environment variables or dependencies are required.
-
-Each guest/room visit starts on its first logical join and ends on explicit Leave, final disconnect grace expiry, or shutdown. Refresh, reconnect within grace and multiple tabs keep the same visit. Focus comes only from connected time overlapping the server's running focus timer. Idle, pause, break and disconnected time do not count. The server saves on meaningful events and once per minute, with no per-second SQL writes. Each guest earns one Pomodoro credit per completed shared focus cycle, attributed to their latest contributing visit. Tasks count once per task per study session, with the task change and contribution committed atomically.
-
-Today uses the browser timezone and splits focus intervals at local midnight. History is fetched ten rows at a time; room totals sum member focus and count shared Pomodoro cycles once. On restart, open visits close at their last durable checkpoint and returning guests begin a new visit. Already saved totals remain. No permanent socket/presence data is added.
-
-See [Study Session History + Stats V1](docs/study-stats-v1.md) for the schema, complete counting rules, scoped HTTP endpoints, crash-recovery limits, changed files and manual tests.
-
-## Shared Pomodoro timer
-
-- `shared/timer.d.ts` describes `RoomTimerState`: `phase` (`focus` or `shortBreak`), `status` (`idle`, `running`, `paused`), `durationMs`, `remainingMs`, `startedAt`, `endsAt`, and `revision`. Snapshots also include `roomId` and `serverNow`.
-- `server/src/socket/roomTimer.ts` lazily creates each timer at **Focus / 25:00 / idle**. Timers remain in memory when everyone leaves so returning members recover the ongoing session. Only a server restart discards them.
-- Clients request `timer:start`, `timer:pause`, `timer:resume`, `timer:reset`, or `timer:sync`, each with `{ roomId }`. The server verifies both socket membership metadata and the user's active socket Set. Malformed or unauthorized requests receive a failed acknowledgement and a `room:error` tagged with the timer operation; they cannot disrupt presence.
-- For a running timer, each snapshot calculates `Math.max(0, endsAt - Date.now())`. Start/resume sets the server timestamps. Pause captures the remaining milliseconds and clears timestamps. Reset returns to Focus / 25:00 / idle from either phase.
-- Each running room has one completion timeout. Pause/reset cancels it; resume schedules a fresh one. Revision and entry checks prevent an old callback from affecting a newer run. Completion switches **Focus → Break / 05:00 / idle**, then **Break → Focus / 25:00 / idle**. Neither phase starts automatically. A sync also settles an overdue completion if its callback was delayed.
-- If a control or sync reaches an overdue timer before its completion callback, the server settles and broadcasts completion once. A late Start/Pause/Resume applies to the expired run and cannot accidentally start the next phase. Reset can still explicitly return the room to Focus / 25:00.
-- Node processes actions sequentially. A duplicate Start cannot replace the existing start/end timestamps or schedule another completion. Inapplicable transitions return current state without mutation. Canonical changes increment revision and broadcast `timer:state` once to the room, including same-user tabs. Sync and duplicate-action replies go only to the requester.
-- Successful room joins always receive a freshly calculated timer snapshot. `useRoomTimer` reuses the existing socket, subscribes to one `timer:state` listener, and requests a sync after joining/reconnecting or returning to a visible tab. `timerClock.ts` ignores older revisions and older/duplicate server timestamps within a revision, so replaying a snapshot cannot restart its local countdown anchor. A new connection accepts a fresh server's revision zero.
-- The timer card calculates `max(0, endsAt - serverNow - elapsedSinceReceipt)` using `performance.now()` for elapsed time, with a duration cap. It runs one 250 ms rendering interval while running, regardless of snapshot updates, and cleans it up on pause, reset or unmount. Skipped ticks do not lose elapsed time, and changing the device clock does not change the countdown. The browser never decides phase completion. Network delivery latency can introduce a small difference between clients; this V1 does not estimate round-trip latency. **No timer state is broadcast or requested every second.**
-- Timer buttons wait for authoritative state, with a brief disabled state while awaiting acknowledgement. Offline controls are disabled and never buffered. An acknowledgement timeout reconnects for a fresh room/timer snapshot. The existing settings icon remains; durations are fixed at 25/5 minutes and the old local duration selector is read-only.
-- Disconnect immediately invalidates pending timer acknowledgements, even before React renders the connection change. Rejoining replaces the snapshot while retaining the existing presence identity. Room switches remove the exact old listeners and cannot carry the old room's timer into the new one.
-
-## Room chat
-
-- `shared/chat.d.ts` defines `ChatMessage`: `{ id, roomId, userId, nickname, avatar, content, createdAt }`. IDs are server-generated UUIDs and `createdAt` is a numeric server timestamp. The client formats timestamps in local time.
-- `chat:send` accepts only the needed data, `{ roomId, content }`. The handler verifies the socket's joined room/user metadata and retrieves the active member using that socket's membership. Sender ID, nickname and avatar come from that member; extra client-supplied identity, ID or timestamp fields are ignored.
-- Content must be a string, is trimmed, and must contain 1–500 characters using JavaScript string length (matching the input's `maxLength`). Blank, malformed and overlong messages are rejected. React renders message content as plain text, including anything that resembles HTML.
-- `server/src/socket/roomChat.ts` stores the latest **100 messages per room** and discards the oldest after that limit. Histories remain capped until server shutdown, including when a room empties. There is no database or persistent chat storage.
-- A rolling rate limit accepts at most **five messages per three seconds per room/user**, shared across that user's tabs. Other users and rooms have independent allowances. Expired rate windows are pruned when a room sends messages, without another timer. Rejection neither stores a message nor disconnects the sender.
-- Accepted messages broadcast once through `chat:message` to that Socket.IO room, including the sender. Joining/rejoining sends `chat:history { roomId, messages }` with the current room's recent history. Other rooms never receive those events.
-- `useRoomChat` reuses the existing socket, with one history listener and one message listener. History replaces the local array; future messages append only when their ID is new. Client lists also retain at most 100 messages. Room changes clear local chat state and filter out events for another room.
-- The compact sidebar form supports Enter or the Send button. It shows the server's canonical message with no temporary optimistic copy, clears the submitted draft only after a successful acknowledgement, and preserves a newer draft typed while awaiting that acknowledgement. Rejected messages retain the draft and show feedback. Offline drafts are not queued; an acknowledgement timeout reconnects to recover history without automatically resending.
-- The constrained message area follows new messages only when the reader is within 48 pixels of the bottom. Scrolling up to read older messages prevents forced scrolling. Avatars, muted self-message accents and local timestamps use the existing room style.
-
-## Manual verification
-
-1. Start PostgreSQL with `npm run db:start`, apply migrations with `npm run db:migrate`, then run `npm run dev` from the repository root. Confirm both app processes start. Visit `http://localhost:5173/api/ready`; it should return `{"status":"ok"}` through the same proxy used by the room. Follow the [task persistence and backend restart tests](docs/persistence-v1.md#manual-verification) as well as the existing feature checks below.
-2. **A — First guest:** open `http://localhost:5173/r/demo` in a regular window. On first use, enter **kei**, select an avatar, and click **Join room**. Expect Members **1**, kei at desk 1, two empty desks, and no reconnecting room/chat message. Saved guests join automatically.
-3. **B — Second guest:** open the identical URL in an **incognito window or a different browser profile**, enter **mika**, and join. Both windows should immediately show Members **2**, kei at desk 1, and mika at desk 2. A second regular tab shares kei's identity and intentionally keeps the count at 1 if no independent guest has joined.
-4. **C — Close:** close mika's window. Kei should retain mika and the desk during grace. Roughly **fifteen seconds after the server detects the disconnect**, Members becomes **1** and desk 2 becomes empty. For an abrupt network failure, Socket.IO's heartbeat detection time is additional to grace. **Leave room** instead removes the last connected socket immediately and returns to the room chooser without deleting the guest ID.
-5. **D — Refresh:** refresh kei's tab. It should reuse the saved identity, return to Members **1**, and keep desk 1 if it rejoins within grace. Rejoin as mika and repeat kei's refresh with both windows open: neither should show a duplicate kei or a moved desk.
-6. **E — Isolation:** open `http://localhost:5173/r/test-room` in another regular tab. It should contain only kei, not mika from demo. Return to demo and confirm its two-member list is unchanged. `/room/demo` remains an alias of `/r/demo`.
-7. **Shared identity:** open a second regular tab at `/r/demo`. Both kei tabs share one member/desk. Close one kei tab; kei must remain visible to mika. Close the last kei tab; kei leaves after grace.
-8. **Connection recovery:** with two independent guests present, briefly toggle one tab offline and online in developer tools. It should reconnect, rejoin once, and recover current members, room/tasks, timer and recent chat. Stop the backend, then restart it and verify automatic recovery with the same guest IDs and saved statuses. Transport retries continue while the page is open. A terminal join failure or intentional server disconnect exposes **Reconnect**. Observe development-only lifecycle messages in the console.
-9. **Stable desks and overflow:** join using four independent browser profiles/storage contexts. All four appear in Members, while exactly three desks are occupied. Close the guest at desk 1: after grace, the waiting fourth guest takes desk 1, and guests at desks 2 and 3 stay in place.
-
-To verify statuses, keep kei and mika open in separate profiles. Both Members rows and occupied desks should show an icon and label. Set kei to **💻 Coding** and confirm mika updates immediately. Set mika to **📖 Reading**, then **☕ Break**, and confirm kei sees both changes without refreshing. Also check **✍️ Writing**, **📚 Studying**, and **😵 Dying**; dying keeps the existing slumped pose and Z indicator. Each window should expose only one editable selector. Refresh mika and verify one member retains the same desk and status. Open `/r/test-room` and confirm demo's changes do not appear there. Open a second kei tab, change status from either tab, and check all demo views agree with one kei member. Briefly disconnect/reconnect and confirm the server restores the selection.
-
-To verify the shared timer:
-
-1. Join the same room as kei and mika in separate profiles. Start as kei, wait ten seconds, and check the displays agree within roughly a second.
-2. Pause as mika and wait five seconds: both displays should stay frozen. Resume as kei, then reset as mika; both should return to Focus / 25:00 / Start.
-3. Start again, wait at least fifteen seconds, and join from a third independent profile. It should receive the current countdown. Refresh kei and briefly disconnect/reconnect; elapsed time and the single member entry should be preserved.
-4. Open another kei tab and control the timer from either tab. Both tabs and mika should agree. Close one kei tab and verify kei remains present.
-5. Open a different room (for example `/room/night-owls` alongside `/room/demo`). Its timer should remain independent. Try starting the same room from two users together; the second action must not restart the timer.
-6. Watch the browser's Network → WebSocket messages while the countdown runs: timer state appears on actions and synchronization, with no per-second timer broadcasts. Check the console for application errors.
-7. At focus completion, all users should see Break / 05:00 / Start. Start that break; completion returns everyone to Focus / 25:00 / Start. The automated clock tests cover both full-duration completions without waiting thirty minutes or changing production durations.
-8. While focus is running, close mika's window, wait over fifteen seconds, and reopen the same room in the same profile. The room timer should keep its deadline even if every member had left. Temporarily disconnect a client and reconnect; verify the elapsed countdown and one member entry.
-9. Rapidly click Start or send concurrent Start requests. The running deadline must not restart. Leave two clients open for a few seconds and confirm there are no per-second `timer:state` events. Change the device clock or return from a background tab; the countdown must follow the server, with one fresh sync when the tab becomes visible.
-
-To verify chat:
-
-1. Join `/room/demo` as kei and mika in separate profiles. Send **hello mika** with Enter, then **lock in 😭** from mika using Send. Each view should show exactly one copy of each message with matching sender details and timestamps.
-2. Try spaces only and a message longer than 500 characters. The form blocks invalid sends and the server rejects malformed/overlong wire payloads without disrupting the room.
-3. Refresh kei and join as ari from another private session. Both should receive the same recent history, with no duplicates. Open a second kei tab and send from either tab; all views should receive one copy.
-4. Join `/room/night-owls` and send a message there. Neither live messages nor history should appear in demo. Switching rooms should replace the displayed history.
-5. Send rapidly: the sixth attempt within three seconds should be rejected with feedback, preserving the draft and connection. Wait three seconds and retry. The limit applies across same-user tabs.
-6. Fill enough history to scroll. Scroll upward, then receive another message: your reading position should remain. Return near the bottom and receive another: the log should follow it.
-7. Disconnect/reconnect kei while another member sends. Rejoining should restore the current history once; offline drafts should remain unsent. Check desktop/mobile layout and the console, then verify status/desk updates and timer Start/Pause/Resume/Reset still work.
-
-## Automated checks
-
-```sh
-npm test
-npm run test:db
-npm run build
+```powershell
+npm.cmd run redis:stop
+npm.cmd run db:stop
 ```
 
-Study tests add deterministic full-duration Pomodoro accounting, partial focus, pause/resume/reset/break exclusions, session continuity, completion deduplication and one-minute checkpoint/retry checks. PostgreSQL tests exercise local-midnight totals, atomic task contributions, bounded history cursors, guest/room access scopes, and recovery of stale visits without disrupting another live backend. The Stats view was also checked with two isolated browser profiles plus a same-guest tab, including an actual backend crash/restart and desktop/mobile layout.
+Keep `server/.env` and `server/.local/`; they contain local credentials/data. Do not overwrite an existing environment file with an example.
 
-`npm test` runs without a database using an explicitly injected test repository. `npm run test:db` requires a running PostgreSQL instance and a separate `TEST_DATABASE_URL` (generated by `db:setup`). It builds the backend and uses disposable schemas in that test database, then removes only those schemas. It exercises repeatable migrations, actual SQL storage, concurrent writes, task broadcasts and isolation, creator attribution, room rename, refresh, and an actual backend process restart with the same saved task IDs and completion state. Further tests verify database failure acknowledgements without unsaved broadcasts, readiness errors, stale client revisions and late asynchronous joins after leaving/switching rooms. There is no production in-memory repository fallback.
+## Configuration and connection checks
 
-The integration tests use disposable local servers and cover health/CORS, full and incremental lists, duplicates, room isolation/switching, explicit leaves, refresh/rejoin grace, multiple sockets per user, malformed wire payloads, and rooms with more than three members. Status tests cover all six values, room broadcasts, same-user tabs, field preservation, ownership rejection, disconnect tracking, status restoration before/after grace, room-scoped status memory, and reset on a fresh server. Timer tests cover authorization, concurrent starts, fresh join/rejoin/sync snapshots, room isolation, pause/resume/reset, event traffic, both phase completions, stale timeout cancellation and shutdown cleanup. Chat tests cover canonical IDs, sender spoofing, validation boundaries, authorization, room isolation, join/rejoin history, the 100-message cap, shared-user rate limits and expiry, safe rejection and disposal. Node's built-in mock clock exercises the real timer durations and chat rate window. Presence tests use a shorter injected grace period for speed; the application default is fifteen seconds. No additional test framework is installed.
-
-Additional coverage exercises the actual Vite proxy with real Socket.IO clients, polling-to-WebSocket upgrades, acknowledged joins, timer controls, twenty concurrent Start requests, no per-second timer traffic, reconnect/rejoin during a running countdown, and room isolation. Client timer tests cover different clock origins, skipped render ticks, frozen pause state, stale/duplicate snapshots, server restarts, and room changes. Server timer tests also reproduce late-control completion boundaries and duplicate completion replies. Client lifecycle tests cover bounded acknowledgement retries, stale callbacks, listener cleanup, and StrictMode-style remounts. Identity tests cover first opening, legacy profile migration, shared browser identity, and non-secure-context ID generation. Rendered component checks verify server desk mapping, empty slots, overflow members, member counts, and the retry action. There is no configured lint command; both builds run TypeScript checks. These checks complement the interactive browser scenarios above.
-
-## Files changed for the presence milestone
-
-| Area | Files |
+| Setting | Purpose |
 | --- | --- |
-| Run commands and documentation | `package.json`, `server/package.json`, `README.md` |
-| Client configuration and routes | `client/.env.example`, `client/vite.config.ts`, `client/src/App.tsx`, `client/src/main.tsx` |
-| Socket lifecycle | `client/src/services/socket.ts`, `client/src/services/roomConnection.ts` (new) |
-| Identity and member state | `client/src/features/presence/localIdentity.ts`, `client/src/features/presence/useRoomPresence.ts`, `client/src/features/presence/MembersPanel.tsx`, `client/src/features/presence/statusOptions.ts` |
-| Room and desks | `client/src/features/room/RoomPage.tsx`, `client/src/features/room/RoomScene.tsx`, `client/src/features/room/StudyDesk.tsx` |
-| Presence protocol and server | `shared/presence.d.ts`, `server/src/socket/index.ts`, `server/src/socket/roomPresence.ts` |
-| Existing tests extended | `server/test/presence.test.ts`, `server/test/roomChat.test.ts` |
-| New tests | `server/test/clientConnection.test.ts`, `server/test/clientIdentity.test.ts`, `server/test/devConnection.test.ts`, `server/test/presenceView.test.tsx` |
+| `server/.env: PORT=3000` | One backend port read by both the server and Vite proxy. Inherited process variables take precedence. |
+| `DATABASE_URL` | Required PostgreSQL connection string; generated by `db:setup`. |
+| `TEST_DATABASE_URL` | Separate test database; generated by `db:setup`. |
+| `REDIS_URL=redis://127.0.0.1:6379` | Required server-only runtime connection; added by `redis:setup`. |
+| `REDIS_KEY_PREFIX=constellate` | Optional namespace; all nodes serving one database/schema must share it. Different deployments/tests must not. |
+| `CLIENT_ORIGINS` | Exact allowed origins for HTTP CORS and Socket.IO handshakes; defaults to `http://localhost:5173,http://127.0.0.1:5173`. Set actual frontend origins in production. |
+| `client/.env: VITE_SERVER_URL` | Leave blank for same-origin Socket.IO/API. Only override for a separate deployed backend. |
+| `SERVER_PROXY_TARGET` | Leave blank so Vite follows backend `PORT`. Only override for a backend on another host. |
+| `VITE_ICE_SERVERS` | Optional JSON ICE server array. Defaults to public Google STUN; supports TURN configuration. See the [voice guide](docs/voice-v1.md#ice-configuration-and-limitations). |
+
+No client or root `.env` is required. Restart dev processes after environment changes; `VITE_*` values are public browser configuration, never a place for private long-lived credentials.
+
+Vite forwards both `/api` and `/socket.io` to `http://127.0.0.1:<PORT>` and enables `ws: true`. The browser uses the existing single Socket.IO client per tab. The proxy preserves Origin; production CORS is an explicit allowlist rather than a wildcard. Static production hosting must supply its own HTTP/WebSocket reverse proxy; Vite's dev proxy is not part of the build output.
+
+- `http://localhost:5173/api/health`: HTTP liveness, `{ "status": "ok" }`.
+- `http://localhost:5173/api/ready`: PostgreSQL and Redis readiness, `{ "status": "ok", "database": "ok", "redis": "ok" }`, or HTTP 503 if a dependency is unavailable.
+- The same endpoints work directly at `http://127.0.0.1:3000`.
+
+Successful startup prints `[dev] Preflight passed`, `Server running at http://127.0.0.1:3000`, then `[dev] Backend, PostgreSQL and Redis are ready. Starting Vite.` In the browser, the development console shows `[Constellate] connected` and `joined room`, and the Socket.IO polling request upgrades to a WebSocket (HTTP 101). Members populate and update across independent browser profiles. If you intentionally stop the backend while Vite remains running, proxy refusal messages are expected and remain visible; they stop after recovery. This workflow does not filter or suppress Vite errors.
+
+## Room behavior
+
+- `/r/<roomId>` and the legacy `/room/<roomId>` join the same room. Invite links preserve that ID. `/` restores the saved room, and `/join` shows the room chooser. Explicit Leave clears the active room but keeps the guest profile/status preferences.
+- `constellate_user_id` and the existing profile live in localStorage. Regular tabs at the same origin share one logical guest/desk. Use a private window or another browser profile for a second guest. These are anonymous identities, not authenticated accounts.
+- Redis tracks each guest's sockets across nodes. Losing one tab does not remove another. Normal disconnect retains the desk/visit for a 15-second grace period. Process crashes use renewable 45-second socket leases; dead leases are swept every five seconds. Three desks are stable; overflow members remain in Members and take a freed desk.
+- Statuses, capped chat history (100 messages) and recent reactions (three) are shared across nodes and isolated by room. Chat/reaction rate limits are per guest across their tabs. History is temporary Redis state, not permanent chat storage.
+- Shared tasks and room names commit to PostgreSQL before broadcasting. Saved task IDs/completion and revision protection survive reconnects. Room IDs accept 1–64 letters, digits, underscores or hyphens, starting with a letter/digit.
+- The server owns 25-minute Focus / five-minute Break timers. Pause/resume/reset and concurrent starts are atomic across nodes. Deadlines survive Node restarts while Redis remains available. Elapsed downtime is accounted for; finished phases normalize once. Break/focus phases wait for Start rather than automatically chaining. There are no per-second server timer writes/broadcasts.
+- Study visits and deduplicated focus/Pomodoro/task contributions remain in PostgreSQL. Redis coordinates active visits and pending accounting; events checkpoint on meaningful changes and once per minute. Multiple tabs/reconnect within grace keep one visit. Stats HTTP access is scoped to a currently joined guest/room and works across nodes.
+- Empty room runtime is retained for about one hour (a running timer is allowed to finish). Uncommitted study accounting prevents expiry until safely written. Saved rooms/tasks/history remain after ephemeral cleanup.
+
+## Optional voice
+
+Click **Join Voice** in Members to request the default microphone. Normal room use and refresh never request media. Voice supports up to six guests in a small mesh, with one active voice tab per guest/room. Mute toggles the audio track without renegotiating. Leave Voice stops the microphone and peers while keeping the study room open; Leave Room also cleans voice.
+
+Temporary Socket.IO disconnect closes peers and disables microphone tracks. After the room reconnects, the still-usable local stream can restore voice without another permission request. After one minute offline, it is stopped. Refresh always requires an explicit new Join Voice. Peer/network failures get bounded retries and a clear error. If playback is blocked, click **Enable audio**.
+
+Microphones require localhost or HTTPS. Public STUN does not guarantee connectivity on restrictive networks; production reliability will require TURN. No TURN server is deployed here. The [Voice V1 guide](docs/voice-v1.md) explains negotiation, events, cleanup, file changes, limitations and the exact manual browser checklist.
+
+## Checks and multi-server testing
+
+```powershell
+npm.cmd test
+npm.cmd run test:db
+npm.cmd run test:redis
+npm.cmd exec -- playwright install chromium
+npm.cmd run test:browser
+npm.cmd run build
+```
+
+With both app ports free (services still running), `npm.cmd run test:dev` additionally exercises the actual root `npm run dev` workflow and all eight startup/reconnect scenarios. It checks unavailable dependencies, duplicate startup prevention, two isolated browser identities, chat/reactions/tasks, the shared timer, voice signaling, an intentional backend stop and recovery through the same watcher. It uses disposable test data and leaves no app processes running afterward. Its report/log are in `.vite/dev-startup-report.json` and `.vite/dev-startup.log`.
+
+`npm test` covers ordinary regressions without services. Database/Redis/browser suites require the running services and `TEST_DATABASE_URL`; they create and remove only disposable schemas and unique Redis namespaces. `test:redis` also restarts a separate test-owned Redis executable when available. `test:browser` starts two actual Node instances and two Vite proxies, uses isolated Chromium storage contexts and generated synthetic audio, and checks actual received audio energy. It never captures or records your physical microphone. Reports/screenshots are ignored under `.vite/`. No lint script is configured; both builds run TypeScript checks.
+
+Real microphone/speaker quality, browser permission prompts, Safari/Firefox/mobile browser behavior and restrictive-network TURN connectivity still require manual testing. Automated audio stats are evidence of decoded synthetic media, not a claim that physical devices were heard.
+
+See [two-backend commands and Redis failure tests](docs/redis-runtime-v1.md#two-backend-development-test). No load balancer or deployment infrastructure was added. The original [persistence](docs/persistence-v1.md), [guest recovery](docs/guest-recovery-v1.md), and [study stats](docs/study-stats-v1.md) guides preserve earlier schema/UI details; the Redis/voice guides supersede their old process-memory/restart descriptions.

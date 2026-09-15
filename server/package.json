@@ -5,6 +5,12 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "redis:setup": "node scripts/local-redis.mjs setup",
+    "redis:start": "node scripts/local-redis.mjs start",
+    "redis:stop": "node scripts/local-redis.mjs stop",
+    "test:redis": "npm run build && node --import tsx --test test/redis/*.test.ts",
+    "test:browser": "npm run build && node test/browser/voice.mjs",
+    "test:dev": "npm run build && node test/browser/dev-startup.mjs",
     "db:setup": "node scripts/local-postgres.mjs setup",
     "db:start": "node scripts/local-postgres.mjs start",
     "db:stop": "node scripts/local-postgres.mjs stop",
@@ -16,9 +22,11 @@
     "test": "node --import tsx --test test/*.test.ts && tsx --tsconfig ../client/tsconfig.app.json --test test/*.test.tsx"
   },
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.0",
     "socket.io": "^4.8.3"
   },
@@ -28,6 +36,7 @@
     "@types/node": "^22.10.2",
     "@types/pg": "^8.23.1",
     "embedded-postgres": "18.4.0-beta.17",
+    "playwright": "^1.63.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
