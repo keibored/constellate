@@ -5,6 +5,11 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "db:setup": "node scripts/local-postgres.mjs setup",
+    "db:start": "node scripts/local-postgres.mjs start",
+    "db:stop": "node scripts/local-postgres.mjs stop",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "test:db": "npm run build && node --import tsx --test test/database/*.test.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
@@ -14,12 +19,15 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "pg": "^8.23.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.5",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
+    "embedded-postgres": "18.4.0-beta.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
