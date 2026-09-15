@@ -47,8 +47,8 @@ button svg { flex-shrink: 0; }
 .status-dot--reading { background: #e0bf7f; }
 .status-dot--dying { background: #d99aa9; }
 .tiny-star { color: #d6b6a4; font-size: 12px; }
-.skip-link { position: fixed; top: -60px; left: 20px; z-index: 100; padding: 12px; background: var(--pink); color: var(--page); }
-.skip-link:focus { top: 10px; }
+.skip-link { position: fixed; top: 10px; left: 20px; z-index: 100; padding: 12px; background: var(--pink); color: var(--page); clip-path: inset(50%); }
+.skip-link:focus { clip-path: none; }
 .not-found { min-height: 100vh; display: flex; gap: 24px; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
 .not-found h1 { font-size: 24px; }
 
