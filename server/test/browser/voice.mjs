@@ -64,16 +64,21 @@ try {
   const ready = p => p.locator('[data-connection="connected"]').waitFor();
   async function join(p, origin, nickname, room = 'voice-study') {
     await p.goto(`${origin}/r/${room}`);
+    await until(async () => Boolean(await p.getByLabel('Nickname', { exact: true }).count() || await p.locator('[data-connection="connected"]').count()), 'room UI loads');
     if (await p.getByLabel('Nickname', { exact: true }).count()) { await p.getByLabel('Nickname', { exact: true }).fill(nickname); await p.getByRole('button', { name: 'Join room', exact: true }).click(); }
     await ready(p);
   }
   const state = p => p.evaluate(async () => {
     const pcs = window.__voiceTest.pcs.filter(pc => pc.connectionState !== 'closed');
     let energy = 0, bytes = 0;
-    for (const pc of pcs) for (const item of (await pc.getStats()).values()) if (item.type === 'inbound-rtp' && item.kind === 'audio') { energy += item.totalAudioEnergy ?? 0; bytes += item.bytesReceived ?? 0; }
+    const received = [];
+    for (const pc of pcs) for (const item of (await pc.getStats()).values()) if (item.type === 'inbound-rtp' && item.kind === 'audio') {
+      energy += item.totalAudioEnergy ?? 0; bytes += item.bytesReceived ?? 0;
+      received.push({ energy: item.totalAudioEnergy ?? 0, bytes: item.bytesReceived ?? 0 });
+    }
     return { permissionCalls: window.__voiceTest.permissionCalls, active: pcs.length, connected: pcs.filter(pc => pc.connectionState === 'connected').length,
       tracks: window.__voiceTest.streams.flatMap(stream => stream.getTracks().map(track => ({ enabled: track.enabled, readyState: track.readyState, kind: track.kind }))),
-      outputs: [...document.querySelectorAll('audio[data-voice-peer]')].map(audio => ({ paused: audio.paused, hasStream: Boolean(audio.srcObject) })), energy, bytes };
+      outputs: [...document.querySelectorAll('audio[data-voice-peer]')].map(audio => ({ paused: audio.paused, hasStream: Boolean(audio.srcObject) })), energy, bytes, received };
   });
   const mesh = async (pages, peers) => { await until(async () => (await Promise.all(pages.map(state))).every(s => s.active === peers && s.connected === peers && s.outputs.length === peers), `${peers}-peer WebRTC mesh`); };
   const voice = async p => { await p.getByRole('button', { name: 'Join Voice', exact: true }).click(); await p.locator('[data-voice-state="joined"]').waitFor(); };
@@ -114,6 +119,8 @@ try {
   await voice(a); await mesh([a, b], 1);
   pass('refresh does not reacquire a microphone; an explicit new join restores one clean peer');
   await join(c, nodes[0].origin, 'Voice Ari'); await voice(c); await mesh([a, b, c], 2);
+  for (const p of [a, b, c]) if (await p.getByRole('button', { name: 'Enable audio', exact: true }).count()) await p.getByRole('button', { name: 'Enable audio', exact: true }).click();
+  await until(async () => (await Promise.all([a, b, c].map(state))).every(s => s.received.length === 2 && s.received.every(track => track.energy > 0 && track.bytes > 0) && s.outputs.every(output => !output.paused)), 'all six mesh audio directions receive and play');
   await join(d, nodes[1].origin, 'Separate Guest', 'separate-voice'); await voice(d);
   assert.equal((await state(d)).active, 0);
   pass('three guests form a two-peer-per-browser mesh; another room has no peer or audio leakage');
@@ -148,6 +155,22 @@ try {
   await a.screenshot({ path: `${root}/.vite/voice-mobile.png`, fullPage: true });
   pass('abrupt peer closure cleans up remote audio; compact voice controls fit desktop and mobile');
   await d.getByRole('button', { name: 'Leave voice', exact: true }).click();
+  // A canceled permission request can resolve later; those tracks must be stopped.
+  await d.evaluate(() => {
+    const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const stream = await getUserMedia(constraints);
+      await new Promise(resolve => { window.__releaseVoicePermission = resolve; });
+      return stream;
+    };
+  });
+  await d.getByRole('button', { name: 'Join Voice', exact: true }).click();
+  await until(() => d.evaluate(() => typeof window.__releaseVoicePermission === 'function'), 'delayed synthetic permission');
+  await d.getByRole('button', { name: 'Leave voice', exact: true }).click();
+  await d.evaluate(() => window.__releaseVoicePermission());
+  await until(async () => (await state(d)).tracks.every(track => track.readyState === 'ended'), 'late permission tracks stopped');
+  assert.equal((await state(d)).active, 0);
+  pass('canceling Join Voice stops even a microphone stream that resolves after cancellation');
   await d.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Test denial', 'NotAllowedError'); }; });
   await d.getByRole('button', { name: 'Join Voice', exact: true }).click(); await d.getByText(/Microphone permission was denied/).waitFor();
   assert.equal((await state(d)).active, 0); await ready(d);

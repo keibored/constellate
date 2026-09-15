@@ -29,13 +29,15 @@ export function parseVoiceSignal(event: VoiceSignalEvent, value: unknown): Voice
 
 export function attachVoiceHandlers(socket: Socket<ClientToServerEvents, ServerToClientEvents>, runtime: RedisRoomRuntime,
   membership: () => { roomId: string; userId: string } | undefined,
-  relay: (socketId: string, event: VoiceSignalEvent, signal: VoiceSignal) => void) {
+  relay: (socketId: string, event: VoiceSignalEvent, signal: VoiceSignal) => void,
+  schedule: (work: () => Promise<void>) => void) {
   const unavailable: RoomResult = { ok: false, error: 'Voice signaling is unavailable. The room can reconnect and try again.' };
   const current = (value: unknown) => {
     const roomId = readRoomId(value), member = membership();
     return roomId && member?.roomId === roomId ? member : null;
   };
-  socket.on('voice:join', async (payload: unknown, acknowledge) => {
+  // Share the room lifecycle queue: a slow join must not commit after its cancel/leave.
+  socket.on('voice:join', (payload: unknown, acknowledge) => schedule(async () => {
     if (typeof acknowledge !== 'function') return;
     const member = current(payload);
     if (!member || !record(payload) || !uuid(payload.clientId) || typeof payload.muted !== 'boolean') { acknowledge({ ok: false, error: 'Join this study room before joining voice.' }); return; }
@@ -47,15 +49,15 @@ export function attachVoiceHandlers(socket: Socket<ClientToServerEvents, ServerT
       }
       acknowledge({ ok: true, sessionId: result.room.voice[member.userId].sessionId, participants: voiceParticipants(result.room) });
     } catch { acknowledge(unavailable); }
-  });
-  socket.on('voice:leave', async (payload: unknown, acknowledge) => {
+  }));
+  socket.on('voice:leave', (payload: unknown, acknowledge) => schedule(async () => {
     if (typeof acknowledge !== 'function') return;
     const member = current(payload);
     if (!member || !record(payload) || !uuid(payload.clientId)) { acknowledge({ ok: false, error: 'A valid room and voice session are required.' }); return; }
     try { await runtime.act(member.roomId, { kind: 'voiceLeave', guestId: member.userId, socketId: socket.id, clientId: payload.clientId }); acknowledge({ ok: true }); }
     catch { acknowledge(unavailable); }
-  });
-  socket.on('voice:mute-state', async (payload: unknown, acknowledge) => {
+  }));
+  socket.on('voice:mute-state', (payload: unknown, acknowledge) => schedule(async () => {
     if (typeof acknowledge !== 'function') return;
     const member = current(payload);
     if (!member || !record(payload) || !uuid(payload.sessionId) || typeof payload.muted !== 'boolean') { acknowledge({ ok: false, error: 'Join voice in this tab before changing mute.' }); return; }
@@ -63,7 +65,7 @@ export function attachVoiceHandlers(socket: Socket<ClientToServerEvents, ServerT
       const result = await runtime.act(member.roomId, { kind: 'voiceMute', guestId: member.userId, socketId: socket.id, sessionId: payload.sessionId, muted: payload.muted });
       acknowledge(result.error ? { ok: false, error: result.error } : { ok: true });
     } catch { acknowledge(unavailable); }
-  });
+  }));
   // Signaling has one socket owner, so this process-local rate window cannot
   // be multiplied by the guest's other tabs. No SDP/candidate is stored.
   let windowStarted = 0, sent = 0;

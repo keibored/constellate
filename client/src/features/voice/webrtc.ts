@@ -112,7 +112,12 @@ export class VoiceRoom {
       void this.leave().then(() => this.publish({ error: 'Your voice connection ended. Click Join Voice to return.' })); return;
     }
     this.reconcile();
+    this.drainSignals();
   };
+  private drainSignals() {
+    const queued = this.buffered.splice(0);
+    for (const item of queued) this.receive(item.event, item.signal);
+  }
   private reconcile() {
     if (this.state.status !== 'joined' || !this.sessionId || !this.usable()) return;
     const remote = this.state.participants.filter(participant => participant.guestId !== this.guestId);
@@ -175,7 +180,10 @@ export class VoiceRoom {
     if (!this.sessionId) { if (this.buffered.length < 200) this.buffered.push({ event, signal }); return; }
     if (signal.toSessionId !== this.sessionId) return;
     const participant = this.state.participants.find(item => item.guestId === signal.fromGuestId && item.sessionId === signal.fromSessionId);
-    if (!participant || participant.guestId === this.guestId) return;
+    // Room broadcasts and targeted signals can arrive through different adapter
+    // channels. Keep a bounded inbox until the corresponding roster arrives.
+    if (!participant) { if (this.buffered.length < 200) this.buffered.push({ event, signal }); return; }
+    if (participant.guestId === this.guestId) return;
     let peer = this.peers.get(participant.guestId);
     if (event === 'voice:restart') {
       if (this.guestId < participant.guestId && peer) this.recoverPeer(peer);
@@ -183,11 +191,19 @@ export class VoiceRoom {
     }
     if (event === 'voice:offer') {
       if (this.guestId < participant.guestId || !signal.description) return; // Lower guest ID alone initiates.
-      if (peer?.negotiationId && peer.negotiationId !== signal.negotiationId) { this.removePeer(participant.guestId); peer = undefined; }
+      if (peer?.negotiationId && peer.negotiationId !== signal.negotiationId) {
+        const earlyCandidates = peer.candidates.filter(item => item.id === signal.negotiationId);
+        this.removePeer(participant.guestId); peer = this.createPeer(participant); peer.candidates = earlyCandidates;
+      }
       if (!peer) peer = this.createPeer(participant);
     }
+    if (event === 'voice:ice-candidate' && signal.candidate && !peer && this.guestId > participant.guestId) peer = this.createPeer(participant);
     if (!peer) return;
     const target = peer;
+    if (event === 'voice:ice-candidate' && signal.candidate && (target.negotiationId !== signal.negotiationId || !target.pc.remoteDescription)) {
+      if (target.candidates.length < 64) target.candidates.push({ id: signal.negotiationId, candidate: signal.candidate });
+      return;
+    }
     target.pending = target.pending.then(async () => {
       if (!this.alive(target)) return;
       if (event === 'voice:offer' && signal.description) {
