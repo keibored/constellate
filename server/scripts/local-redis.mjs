@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { config } from 'dotenv';
 import { Redis } from 'ioredis';
@@ -55,9 +55,12 @@ async function main() {
       const log = openSync(join(local, 'redis.log'), 'a');
       const child = spawn(binary, ['--bind', '127.0.0.1', '--port', String(port), '--protected-mode', 'yes', '--save', '60', '1', '--dir', '.', '--dbfilename', 'runtime.rdb'],
         { cwd: local, windowsHide: true, detached: true, stdio: ['ignore', log, log] });
+      let startFailed = false;
+      child.once('error', () => { startFailed = true; });
       child.unref(); closeSync(log);
       for (let attempt = 0; attempt < 30 && !running; attempt++) {
         await delay(200);
+        if (startFailed) throw new Error('Redis could not be launched. Check the portable executable and server/.local/redis/redis.log.');
         running = await redis.connect().then(() => true, () => false);
       }
       if (!running) throw new Error('Redis did not start. Check server/.local/redis/redis.log.');
