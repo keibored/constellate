@@ -1,5 +1,6 @@
 import type { TimerAction, TimerRequest, TimerStatePayload } from './timer';
 import type { ChatHistory, ChatMessage, ChatSendPayload } from './chat';
+import type { StatsAccessResult } from './stats';
 import type { PersistentOperation, RoomStatePayload, TaskCreatePayload, TaskTogglePayload, TaskDeletePayload, RoomRenamePayload } from './roomState';
 
 export type AvatarId = 'dark' | 'pink' | 'green';
@@ -32,6 +33,7 @@ export interface RoomError { message: string; operation?: 'status:update' | `tim
 export type RoomResult = { ok: true } | { ok: false; error: string; code?: 'ROOM_NOT_FOUND'; retryable?: boolean };
 
 export interface ClientToServerEvents {
+  'stats:access': (payload: { roomId: string }, acknowledge: (result: StatsAccessResult) => void) => void;
   'tasks:sync': (payload: { roomId: string }, acknowledge: (result: RoomResult) => void) => void;
   'task:create': (payload: TaskCreatePayload, acknowledge: (result: RoomResult) => void) => void;
   'task:toggle': (payload: TaskTogglePayload, acknowledge: (result: RoomResult) => void) => void;

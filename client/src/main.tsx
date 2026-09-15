@@ -5,9 +5,12 @@ import './styles/index.css';
 import './styles/room.css';
 import './styles/presence.css';
 import './styles/chat.css';
+import './styles/session.css';
+import { getLastRoom } from './features/presence/localSession';
 
 if (window.location.pathname === '/') {
-  window.history.replaceState(null, '', `/room/demo${window.location.search}${window.location.hash}`);
+  const roomId = getLastRoom();
+  if (roomId) window.history.replaceState(null, '', `/r/${roomId}${window.location.search}${window.location.hash}`);
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

@@ -6,7 +6,7 @@ export type RoomSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 // One socket per browser tab. The presence hook owns its connection and listeners.
 export const roomSocket: RoomSocket = io(import.meta.env.VITE_SERVER_URL?.trim() || undefined, {
   autoConnect: false,
-  reconnectionAttempts: 10,
+  reconnectionAttempts: Infinity,
   reconnectionDelay: 1_000,
   reconnectionDelayMax: 5_000,
   timeout: 10_000,

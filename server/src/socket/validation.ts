@@ -21,7 +21,12 @@ export function parseJoin(payload: unknown): RoomJoinPayload | null {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{8,64}$/.test(id)) return null;
   if (typeof nickname !== 'string' || !nickname.trim() || nickname.trim().length > 24 || /[\u0000-\u001f\u007f]/.test(nickname)) return null;
   if (avatar !== 'dark' && avatar !== 'pink' && avatar !== 'green') return null;
-  return { roomId: payload.roomId, user: { id, nickname: nickname.trim(), avatar } };
+  if (payload.status !== undefined && (typeof payload.status !== 'string' || !presenceStatuses.has(payload.status))) return null;
+  if (payload.restore !== undefined && typeof payload.restore !== 'boolean') return null;
+  return { roomId: payload.roomId, user: { id, nickname: nickname.trim(), avatar },
+    ...(payload.status !== undefined ? { status: payload.status as RoomJoinPayload['status'] } : {}),
+    ...(payload.restore !== undefined ? { restore: payload.restore } : {}),
+  };
 }
 
 export function parseStatusUpdate(payload: unknown): StatusUpdatePayload | null {

@@ -6,12 +6,16 @@ interface TimerEntry {
   state: RoomTimerState;
   completion?: ReturnType<typeof setTimeout>;
 }
+export interface TimerTransition {
+  roomId: string; previous: TimerStatePayload; state: TimerStatePayload;
+  reason: Exclude<TimerAction, 'sync'> | 'complete'; at: number;
+}
 
 /** One authoritative clock and, while running, one completion timeout per room. */
 export class RoomTimer {
   private rooms = new Map<string, TimerEntry>();
 
-  constructor(private onChanged: (state: TimerStatePayload) => void) {}
+  constructor(private onChanged: (state: TimerStatePayload) => void, private onTransition: (event: TimerTransition) => void = () => {}) {}
 
   private getOrCreate(roomId: string): TimerEntry {
     let entry = this.rooms.get(roomId);
@@ -40,12 +44,16 @@ export class RoomTimer {
   private completeIfDue(roomId: string, entry: TimerEntry, now: number) {
     if (entry.state.status !== 'running' || entry.state.endsAt! > now) return false;
     this.cancelCompletion(entry);
+    const previous = this.snapshot(roomId, entry, now);
+    const completedAt = entry.state.endsAt!;
     const phase = entry.state.phase === 'focus' ? 'shortBreak' : 'focus';
     entry.state = {
       phase, status: 'idle', durationMs: TIMER_DURATIONS[phase], remainingMs: TIMER_DURATIONS[phase],
       startedAt: null, endsAt: null, revision: entry.state.revision + 1,
     };
-    this.onChanged(this.snapshot(roomId, entry, now));
+    const snapshot = this.snapshot(roomId, entry, now);
+    this.onTransition({ roomId, previous, state: snapshot, reason: 'complete', at: completedAt });
+    this.onChanged(snapshot);
     return true;
   }
 
@@ -82,6 +90,7 @@ export class RoomTimer {
       return { state: this.snapshot(roomId, entry, now), changed: true };
     }
     const state = entry.state;
+    const previous = this.snapshot(roomId, entry, now);
     if ((action === 'start' && state.status === 'idle') || (action === 'resume' && state.status === 'paused')) {
       entry.state = { ...state, status: 'running', startedAt: now, endsAt: now + state.remainingMs, revision: state.revision + 1 };
       this.scheduleCompletion(roomId, entry);
@@ -99,6 +108,7 @@ export class RoomTimer {
       return { state: this.snapshot(roomId, entry, now), changed: false };
     }
     const snapshot = this.snapshot(roomId, entry, now);
+    this.onTransition({ roomId, previous, state: snapshot, reason: action as Exclude<TimerAction, 'sync'>, at: now });
     this.onChanged(snapshot);
     return { state: snapshot, changed: true };
   }
