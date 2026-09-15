@@ -1,5 +1,7 @@
 # Study Session History + Stats V1
 
+> Historical milestone guide. Current runtime, restart, setup and voice behavior is documented in [Redis runtime V1](redis-runtime-v1.md) and [Voice V1](voice-v1.md); those supersede the single-backend ownership and recovery descriptions below.
+
 Constellate now records guest study visits and meaningful activity in PostgreSQL. Open **Stats** in the existing room navigation or append `#stats` to a room URL, for example `http://localhost:5173/r/demo#stats`. The room's presence, task, chat and timer components stay mounted while this view is open. Tasks/Members still return to their existing sections; Settings remains its existing dialog.
 
 ## Setup, migration and commands

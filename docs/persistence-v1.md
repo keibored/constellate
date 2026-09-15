@@ -1,5 +1,7 @@
 # Persistent Room State V1
 
+> Historical milestone guide. Current runtime, restart, setup and voice behavior is documented in [Redis runtime V1](redis-runtime-v1.md) and [Voice V1](voice-v1.md); those supersede the process-memory descriptions below.
+
 Room names and shared tasks are now stored in PostgreSQL. The existing room routes, guest identity, artwork and synchronized Pomodoro remain in place. This guide describes the persistence milestone; earlier presence/timer changes may also be present in the working tree.
 
 ## Local setup and commands

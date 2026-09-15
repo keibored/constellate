@@ -1,5 +1,7 @@
 # Persistent Guest Identity + Reconnect Recovery V1
 
+> Historical milestone guide. Current runtime, restart, setup and voice behavior is documented in [Redis runtime V1](redis-runtime-v1.md) and [Voice V1](voice-v1.md); those supersede the process-memory descriptions below.
+
 This milestone extends the existing guest-based presence model. It preserves room routes, guest names/avatars, PostgreSQL rooms/tasks, the synchronized Pomodoro and the room's visual design. The only added UI is a small Leave icon beside the room code and a room-code form used after leaving.
 
 ## Local identity and session storage
