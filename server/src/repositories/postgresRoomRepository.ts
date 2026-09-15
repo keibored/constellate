@@ -16,6 +16,7 @@ export class PostgresRoomRepository implements RoomRepository {
   constructor(private pool: Pool) {}
 
   async health() { await this.pool.query('SELECT 1'); }
+  async exists(roomId: string) { return Boolean((await this.pool.query('SELECT 1 FROM rooms WHERE id = $1', [roomId])).rowCount); }
   load(roomId: string, createIfMissing = true) { return this.transaction(roomId, undefined, createIfMissing); }
   mutate(roomId: string, action: RoomMutation) { return this.transaction(roomId, action); }
 

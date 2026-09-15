@@ -1,4 +1,5 @@
 export type StudyWrite =
+  | { kind: 'recoverRoom'; roomId: string; generation: string }
   | { kind: 'roomStart'; id: string; roomId: string; at: number }
   | { kind: 'sessionStart'; id: string; roomId: string; roomSessionId: string; guestId: string; at: number }
   | { kind: 'activity'; sessionId: string; activity: 'focus' | 'pomodoro' | 'task'; referenceId: string; start: number; end: number; focusMs: number }

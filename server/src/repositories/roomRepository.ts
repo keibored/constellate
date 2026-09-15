@@ -11,6 +11,7 @@ export interface RoomRepository {
   load(roomId: string, createIfMissing?: boolean): Promise<RoomStatePayload>;
   mutate(roomId: string, action: RoomMutation): Promise<RoomStatePayload>;
   health(): Promise<void>;
+  exists?(roomId: string): Promise<boolean>;
 }
 
 export class RoomStateError extends Error {}

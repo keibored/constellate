@@ -13,6 +13,22 @@ export class PostgresStudySessionRepository implements StudySessionRepository {
   private lease?: PoolClient;
   private leaseLost = false;
   constructor(private pool: Pool) {}
+  async closeExpiredRuntime(roomId: string, stillMissing: () => Promise<boolean>) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext(current_schema()), hashtext($1))', [`study:${roomId}`]);
+      // Recheck Redis while holding the same SQL lock used by outbox writers.
+      // A concurrent new generation either already exists (skip), or inserts
+      // its visits only after this cleanup commits.
+      if (await stillMissing()) {
+        await client.query("UPDATE study_sessions SET ended_at = last_checkpoint_at, end_reason = 'server_restart' WHERE room_id = $1 AND ended_at IS NULL", [roomId]);
+        await client.query('UPDATE room_study_sessions SET ended_at = last_checkpoint_at WHERE room_id = $1 AND ended_at IS NULL', [roomId]);
+      }
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
+    finally { client.release(); }
+  }
 
   /** One backend per schema. A live backend cannot have its sessions marked stale. */
   async recover() {
@@ -38,13 +54,22 @@ export class PostgresStudySessionRepository implements StudySessionRepository {
       finally { lease.release(this.leaseLost); }
     }
   }
-  async write(events: readonly StudyWrite[]) {
+  async write(events: readonly StudyWrite[], roomId?: string) {
     if (this.leaseLost) throw new Error('Study tracking backend ownership was lost.');
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      if (roomId) await client.query('SELECT pg_advisory_xact_lock(hashtext(current_schema()), hashtext($1))', [`study:${roomId}`]);
       for (const event of events) {
-        if (event.kind === 'roomStart') await client.query(`INSERT INTO room_study_sessions(id, room_id, started_at, last_checkpoint_at)
+        if (event.kind === 'recoverRoom') {
+          // The first gathering is also a durable generation receipt. It is
+          // inserted in this transaction, so replay cannot close newer visits.
+          const seen = await client.query('SELECT 1 FROM room_study_sessions WHERE id = $1', [event.generation]);
+          if (!seen.rowCount) {
+            await client.query("UPDATE study_sessions SET ended_at = last_checkpoint_at, end_reason = 'server_restart' WHERE room_id = $1 AND ended_at IS NULL", [event.roomId]);
+            await client.query('UPDATE room_study_sessions SET ended_at = last_checkpoint_at WHERE room_id = $1 AND ended_at IS NULL', [event.roomId]);
+          }
+        } else if (event.kind === 'roomStart') await client.query(`INSERT INTO room_study_sessions(id, room_id, started_at, last_checkpoint_at)
           SELECT $1, id, $3, $3 FROM rooms WHERE id = $2 ON CONFLICT(id) DO NOTHING`, [event.id, event.roomId, new Date(event.at)]);
         else if (event.kind === 'sessionStart') await client.query(`INSERT INTO study_sessions(id, room_id, room_study_session_id, guest_id, started_at, last_checkpoint_at)
           SELECT $1, room_id, id, $3, $4, $4 FROM room_study_sessions WHERE id = $2 ON CONFLICT(id) DO NOTHING`,
