@@ -1,0 +1,9 @@
+.voice-controls { margin: 0 0 16px; padding: 12px 0; border-top: 1px solid #65566d45; border-bottom: 1px solid #65566d45; }
+.voice-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 10px; font-size: 11px; color: #d8c5e2; }
+.voice-heading > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+.voice-heading > span:last-child { color: var(--muted); font-size: 9px; }
+.voice-buttons { display: flex; gap: 8px; }
+.voice-controls .invite-button { padding: 8px; font-size: 12px; }
+.voice-note { margin-top: 8px; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.voice-error { color: #e5b0bc; }
+.member-voice { display: inline-flex; color: #d7bfdc; flex-shrink: 0; }
