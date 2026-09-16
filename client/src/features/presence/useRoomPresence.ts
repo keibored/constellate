@@ -55,11 +55,16 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     setStatusError(null);
     if (!identity) { setConnection('idle'); return; }
     const { userId, nickname, avatar } = identity;
+    let latestPresence: { epoch: string; revision: number } | null = null;
     const saveOwnStatus = (member?: MemberPresence) => {
       if (member?.userId === userId) rememberStatus(userId, roomId, member.status);
     };
     const onList = (payload: PresenceList) => {
       if (payload.roomId !== roomId) return;
+      if (payload.epoch !== undefined && payload.revision !== undefined) {
+        if (latestPresence?.epoch === payload.epoch && latestPresence.revision >= payload.revision) return;
+        latestPresence = { epoch: payload.epoch, revision: payload.revision };
+      }
       clearPendingStatus();
       setStatusError(null);
       saveOwnStatus(payload.members.find(member => member.userId === userId));

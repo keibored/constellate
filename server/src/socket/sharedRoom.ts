@@ -7,7 +7,8 @@ import { RoomNotFoundError, type RoomRepository } from '../repositories/roomRepo
 import { attachPersistentRoomHandlers } from './persistentRoom.js';
 import { RedisRoomRuntime } from '../redis/roomRuntime.js';
 import { RedisStatsAccess } from '../redis/statsAccess.js';
-import { members, timerSnapshot, type RuntimeAction } from '../redis/roomState.js';
+import { members, timerSnapshot, voiceParticipants, type RuntimeAction } from '../redis/roomState.js';
+import { attachVoiceHandlers } from './voiceHandlers.js';
 import { RuntimeUnavailableError } from '../redis/connection.js';
 
 interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string }
@@ -28,6 +29,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
     if (result.timerChanged) io.to(channel(room.roomId)).emit('timer:state', timerSnapshot(room, now));
     if (result.message) io.to(channel(room.roomId)).emit('chat:message', result.message);
     if (result.reaction) io.to(channel(room.roomId)).emit('reaction:new', result.reaction);
+    if (result.voiceChanged) io.to(channel(room.roomId)).emit('voice:participants', voiceParticipants(room));
   };
   runtime.redis.onAvailability = ready => {
     if (!ready) {
@@ -53,6 +55,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       if (typeof acknowledge === 'function') acknowledge({ ok: false, error: message });
     };
     const leave = async (immediate: boolean) => {
+      runtime.detachSocket(socket.id);
       const current = socket.data.membership;
       delete socket.data.membership;
       await access.revoke(socket.data.statsToken); delete socket.data.statsToken;
@@ -91,6 +94,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
         socket.emit('timer:state', timerSnapshot(result.room, result.now));
         socket.emit('chat:history', { roomId: join.roomId, messages: result.room.messages });
         socket.emit('reaction:history', { roomId: join.roomId, reactions: result.room.reactions });
+        socket.emit('voice:participants', voiceParticipants(result.room));
         socket.emit('room:state', saved);
         if (typeof acknowledge === 'function') acknowledge({ ok: true });
       }, acknowledge);
@@ -139,6 +143,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       const member = await runtime.member(roomId, current.userId, socket.id);
       return member ? { id: member.userId, nickname: member.nickname, avatar: member.avatar } : null;
     }, state => io.to(channel(state.roomId)).emit('room:state', state), runtime);
+    attachVoiceHandlers(socket, runtime, () => socket.data.membership, (target, event, signal) => io.to(target).emit(event, signal), schedule);
     socket.on('disconnect', () => schedule(() => leave(false)));
   });
   runtime.start();

@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { test, type TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { io, type Socket } from 'socket.io-client';
-import { createAppServer } from '../src/app.js';
+import { createAppServer } from './helpers/appServer.js';
 import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import { RoomChat, MAX_MESSAGES_PER_ROOM, CHAT_RATE_WINDOW_MS } from '../src/socket/roomChat.js';
 import type { ClientToServerEvents, ServerToClientEvents, MemberPresence, RoomUser } from '../../shared/presence.js';

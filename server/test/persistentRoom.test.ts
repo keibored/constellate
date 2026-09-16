@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { test, type TestContext } from 'node:test';
 import { io, type Socket } from 'socket.io-client';
-import { createAppServer } from '../src/app.js';
+import { createAppServer } from './helpers/appServer.js';
 import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/presence.js';
 import type { RoomStatePayload } from '../../shared/roomState.js';

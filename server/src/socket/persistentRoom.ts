@@ -4,16 +4,15 @@ import type { RoomStatePayload } from '../../../shared/roomState.js';
 import { RoomStateError, type RoomMutation, type RoomRepository } from '../repositories/roomRepository.js';
 import { databaseErrorCode } from '../db/pool.js';
 import { readRoomId } from './validation.js';
-import type { StudySessionService } from '../services/studySessionService.js';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value);
 
 export function attachPersistentRoomHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>, repository: RoomRepository,
-  member: (roomId: string) => RoomUser | null,
+  member: (roomId: string) => RoomUser | null | Promise<RoomUser | null>,
   broadcast: (state: RoomStatePayload) => void,
-  studies?: StudySessionService,
+  studies?: { sessionId(roomId: string, guestId: string): string | undefined | Promise<string | undefined>; flush(roomId?: string): Promise<void> },
 ) {
   for (const operation of ['tasks:sync', 'task:create', 'task:toggle', 'task:delete', 'room:rename'] as const) {
     socket.on(operation, async (input: unknown, acknowledge?: (result: RoomResult) => void) => {
@@ -24,7 +23,9 @@ export function attachPersistentRoomHandlers(
       };
       const roomId = readRoomId(input);
       if (!roomId) { fail('A valid room is required.'); return; }
-      const creator = member(roomId);
+      let creator: RoomUser | null;
+      try { creator = await member(roomId); }
+      catch { fail('The realtime state service is unavailable. Reconnect before changing saved room state.'); return; }
       if (!creator) { fail('Join this room before changing its saved state.'); return; }
       const payload = input as Record<string, unknown>;
       let action: RoomMutation | undefined;
@@ -40,16 +41,16 @@ export function attachPersistentRoomHandlers(
       }
       try {
         if (action?.kind === 'toggle' && action.completed && studies) {
-          const sessionId = studies.sessionId(roomId, creator.id);
+          const sessionId = await studies.sessionId(roomId, creator.id);
           if (!sessionId) { fail('Rejoin the room before completing a task.'); return; }
           action.contribution = { sessionId, guestId: creator.id, at: Date.now() };
-          await studies.flush();
+          await studies.flush(roomId);
         }
         // Authorization is checked at receipt. A committed change must reach the
         // original room even if its requester navigates away during the query.
         const state = action ? await repository.mutate(roomId, action) : await repository.load(roomId, false);
         if (action) broadcast(state);
-        else if (socket.connected && member(roomId)) socket.emit('room:state', state);
+        else if (socket.connected && await member(roomId)) socket.emit('room:state', state);
         if (typeof acknowledge === 'function') acknowledge({ ok: true });
       } catch (error) {
         if (error instanceof RoomStateError) fail(error.message);

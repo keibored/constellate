@@ -4,6 +4,7 @@ import { RoomNotFoundError } from '../repositories/roomRepository.js';
 import type { PostgresStudySessionRepository } from '../repositories/postgresStudySessionRepository.js';
 import { RedisConnections, RuntimeUnavailableError } from './connection.js';
 import { applyRoomAction, freshRoom, nextRoomDue, parseRoom, RUNTIME_TIMING, type RuntimeAction, type RuntimeResult, type RuntimeRoom } from './roomState.js';
+import type { VoiceTarget } from '../../../shared/voice.js';
 
 // Compare opaque versions, not just revision numbers (protects against expiry/ABA).
 const commit = `
@@ -61,6 +62,7 @@ export class RedisRoomRuntime {
       version, randomUUID(), JSON.stringify(room), nextRoomDue(room, now, this.timing), ttl, room.roomId)) === 1;
   }
   async act(roomId: string, action: RuntimeAction): Promise<RuntimeResult> {
+    if (action.kind === 'leave') this.sockets.delete(action.socketId);
     this.redis.requireReady();
     // A deleted PostgreSQL room must never retain/recreate live state.
     try {
@@ -78,7 +80,7 @@ export class RedisRoomRuntime {
       else if (action.kind === 'leave') this.sockets.delete(action.socketId);
       // A periodic snapshot also repairs a missed Pub/Sub update after a node
       // died between its successful Redis commit and its broadcast.
-      this.onChange?.(action.kind === 'heartbeat' ? { ...result, presenceChanged: true, timerChanged: true } : result, loaded.now);
+      this.onChange?.(action.kind === 'heartbeat' ? { ...result, presenceChanged: true, timerChanged: true, voiceChanged: true } : result, loaded.now);
       if (room.pending.length) void this.flush(roomId).catch(error => this.report(error));
       return result;
     }
@@ -87,6 +89,17 @@ export class RedisRoomRuntime {
   async member(roomId: string, guestId: string, socketId: string) {
     const result = await this.act(roomId, { kind: 'member', guestId, socketId });
     return result.error ? null : result.member ?? null;
+  }
+  detachSocket(socketId: string) { this.sockets.delete(socketId); }
+  async voiceTarget(guestId: string, socketId: string, target: VoiceTarget) {
+    const { room, now } = await this.load(target.roomId);
+    if (!room || guestId === target.targetGuestId) return null;
+    const own = <T>(record: Record<string, T>, key: string) => Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+    const sender = own(room.voice, guestId), receiver = own(room.voice, target.targetGuestId);
+    const senderPresence = own(room.presence, guestId), receiverPresence = own(room.presence, target.targetGuestId);
+    if (!sender || !receiver || !senderPresence || !receiverPresence || sender.socketId !== socketId || sender.sessionId !== target.sessionId || receiver.sessionId !== target.targetSessionId) return null;
+    if ((own(senderPresence.sockets, socketId)?.expiresAt ?? 0) <= now || (own(receiverPresence.sockets, receiver.socketId)?.expiresAt ?? 0) <= now) return null;
+    return receiver.socketId;
   }
   async sessionId(roomId: string, guestId: string) { return (await this.load(roomId)).room?.study.visits[guestId]?.id; }
   async checkpoint(roomId: string) { await this.act(roomId, { kind: 'checkpoint' }); await this.flush(roomId); }
@@ -125,7 +138,10 @@ export class RedisRoomRuntime {
       for (const roomId of due) {
         try {
           const current = await this.load(roomId);
-          if (!current.room) { await this.redis.command.eval(remove, 2, this.redis.keys.room(roomId), this.redis.keys.due, current.version, roomId); continue; }
+          if (!current.room) {
+            await this.studies.closeExpiredRuntime(roomId, async () => !await this.redis.command.exists(this.redis.keys.room(roomId)));
+            await this.redis.command.eval(remove, 2, this.redis.keys.room(roomId), this.redis.keys.due, current.version, roomId); continue;
+          }
           if (!Object.keys(current.room.presence).length && !current.room.pending.length && current.room.timer.status !== 'running' && current.room.lastActive + this.timing.idle <= now) { await this.forget(roomId); continue; }
           await this.act(roomId, { kind: 'sweep' }); await this.flush(roomId);
         } catch (error) { this.report(error); }
