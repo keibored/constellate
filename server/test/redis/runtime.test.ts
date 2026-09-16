@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { test, type TestContext } from 'node:test';
@@ -15,6 +22,7 @@ import { parseRoom, RUNTIME_TIMING } from '../../src/redis/roomState.js';
 import { createAppServer } from '../../src/app.js';
 import type { ClientToServerEvents, ServerToClientEvents, PresenceList } from '../../../shared/presence.js';
 import type { TimerStatePayload } from '../../../shared/timer.js';
+import type { VoiceParticipants, VoiceSignal } from '../../../shared/voice.js';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 const kei = { id: 'shared-user-kei', nickname: 'kei', avatar: 'dark' as const };
@@ -23,8 +31,9 @@ async function until(fn: () => boolean | Promise<boolean>, label: string, timeou
   const end = Date.now() + timeout;
   while (!await fn()) { assert.ok(Date.now() < end, label); await delay(20); }
 }
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, redisUrl?: string) {
   const env = loadServerEnvironment(); assert.ok(env.TEST_DATABASE_URL); assert.ok(env.REDIS_URL, 'Run npm run redis:setup.');
+  env.REDIS_URL = redisUrl ?? env.REDIS_URL;
   const suffix = randomBytes(8).toString('hex'), schema = `constellate_test_${suffix}`, prefix = `constellate:test:${suffix}`;
   const admin = createDatabasePool(env.TEST_DATABASE_URL); await admin.query(`CREATE SCHEMA "${schema}"`);
   const url = new URL(env.TEST_DATABASE_URL); url.searchParams.set('options', `-c search_path=${schema}`);
@@ -45,7 +54,7 @@ async function fixture(t: TestContext) {
   const node = async () => {
     const redis = new RedisConnections(env.REDIS_URL!, prefix); await redis.connect();
     const runtime = new RedisRoomRuntime(redis, rooms, studies);
-    const app = createAppServer(['http://localhost:5173'], rooms, undefined, undefined, { runtime, repository: studies });
+    const app = createAppServer(['http://localhost:5173'], rooms, { runtime, repository: studies });
     app.httpServer.listen(0, '127.0.0.1'); await once(app.httpServer, 'listening');
     const address = app.httpServer.address(); assert.ok(address && typeof address !== 'string');
     let closed = false;
@@ -162,4 +171,135 @@ test('Redis connection failure fails readiness and closes local transports; reco
   await restored.socket.timeout(5000).emitWithAck('reaction:send', { roomId: 'demo', kind: 'coffee' });
   await until(() => two.reactions.length === 1, 'adapter still works after Redis reconnect');
   assert.equal((await fetch(`${a.url}/api/ready`)).status, 200);
+});
+
+test('voice signaling targets only the authorized peer across nodes; another tab cannot take ownership, mute, or signal as it', async t => {
+  const f = await fixture(t), a = await f.node(), b = await f.node();
+  const one = await f.connect(a.url), two = await f.connect(b.url, mika), tab = await f.connect(b.url), stranger = await f.connect(a.url, { ...mika, id: 'voice-outside-user' }, 'other');
+  const received: VoiceSignal[] = [], outside: VoiceSignal[] = [], rosters: VoiceParticipants[] = [];
+  two.socket.on('voice:offer', signal => received.push(signal)); stranger.socket.on('voice:offer', signal => outside.push(signal));
+  two.socket.on('voice:participants', state => rosters.push(state));
+  const firstClient = randomUUID(), secondClient = randomUUID();
+  const first = await one.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'demo', clientId: firstClient, muted: false }); assert.ok(first.ok);
+  const second = await two.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'demo', clientId: secondClient, muted: false }); assert.ok(second.ok);
+  const otherVoice = await stranger.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'other', clientId: randomUUID(), muted: false }); assert.ok(otherVoice.ok);
+  const duplicate = await tab.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'demo', clientId: randomUUID(), muted: false });
+  assert.equal(duplicate.ok, false); assert.match(!duplicate.ok && duplicate.error || '', /another tab/);
+  const signal = { roomId: 'demo', sessionId: first.sessionId, targetGuestId: mika.id, targetSessionId: second.sessionId,
+    negotiationId: randomUUID(), description: { type: 'offer' as const, sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' } };
+  assert.deepEqual(await one.socket.timeout(5000).emitWithAck('voice:offer', signal), { ok: true });
+  await until(() => received.length === 1, 'targeted signal crosses Redis adapter');
+  assert.equal(received[0].fromGuestId, kei.id); assert.equal(received[0].toSessionId, second.sessionId); assert.equal(outside.length, 0);
+  assert.equal((await tab.socket.timeout(5000).emitWithAck('voice:offer', signal)).ok, false, 'another same-guest socket cannot signal as the owner');
+  assert.equal((await one.socket.timeout(5000).emitWithAck('voice:offer', { ...signal, targetGuestId: 'voice-outside-user', targetSessionId: otherVoice.sessionId })).ok, false);
+  assert.equal((await one.socket.timeout(5000).emitWithAck('voice:offer', { ...signal, roomId: 'other' })).ok, false);
+  assert.equal((await tab.socket.timeout(5000).emitWithAck('voice:mute-state', { roomId: 'demo', sessionId: first.sessionId, muted: true })).ok, false);
+  assert.deepEqual(await one.socket.timeout(5000).emitWithAck('voice:mute-state', { roomId: 'demo', sessionId: first.sessionId, muted: true }), { ok: true });
+  await until(() => rosters.at(-1)?.participants.find(participant => participant.guestId === kei.id)?.muted === true, 'mute state reaches peer');
+  one.socket.disconnect();
+  await until(() => !rosters.at(-1)?.participants.some(participant => participant.guestId === kei.id), 'voice leaves when its owner disconnects');
+  assert.equal(tab.presence.at(-1)?.members.length, 2, 'normal room presence remains through the other tab');
+  const again = await tab.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'demo', clientId: randomUUID(), muted: false }); assert.ok(again.ok);
+  assert.notEqual(again.sessionId, first.sessionId);
+  assert.equal((await tab.socket.timeout(5000).emitWithAck('voice:offer', signal)).ok, false, 'old signaling session cannot be replayed');
+  await two.socket.timeout(5000).emitWithAck('voice:leave', { roomId: 'demo', clientId: secondClient });
+  await until(() => rosters.at(-1)?.participants.length === 1, 'leaving voice updates participants');
+  assert.equal(two.socket.connected, true);
+  assert.deepEqual(await two.socket.timeout(5000).emitWithAck('chat:send', { roomId: 'demo', content: 'Still studying' }), { ok: true });
+});
+
+test('pending accounting survives a failed commit acknowledgement and missing runtime closes stale SQL visits safely', async t => {
+  const f = await fixture(t), a = await f.node();
+  const originalWrite = f.studies.write.bind(f.studies);
+  const mocked = t.mock.method(f.studies, 'write', async () => { throw new Error('simulated database outage'); });
+  const one = await f.connect(a.url);
+  await one.socket.timeout(5000).emitWithAck('timer:start', { roomId: 'demo' });
+  await delay(30);
+  await one.socket.timeout(5000).emitWithAck('timer:pause', { roomId: 'demo' });
+  await assert.rejects(a.runtime.flush('demo'));
+  const key = f.control.keys.room('demo');
+  assert.equal(await f.control.command.pttl(key), -1, 'uncommitted accounting cannot expire');
+  const state = parseRoom((await f.control.command.hget(key, 'state'))!, 'demo');
+  await originalWrite(state.pending.map(item => item.event), 'demo'); // SQL commit succeeded; Redis acknowledgement did not.
+  const expected = (await f.studies.personal(kei.id, 'UTC')).overall;
+  assert.ok(expected.focusSeconds > 0); assert.equal(expected.sessions, 1);
+  mocked.mock.restore();
+  await a.runtime.flush('demo');
+  assert.deepEqual((await f.studies.personal(kei.id, 'UTC')).overall, expected);
+  assert.equal((await f.studies.history(kei.id, 10)).sessions[0].endedAt, null, 'replayed recovery event does not close the current visit');
+  assert.ok(await f.control.command.pttl(key) > 0);
+  await f.control.command.del(key); await f.control.command.zadd(f.control.keys.due, 0, 'demo');
+  await a.runtime.sweep();
+  assert.ok((await f.studies.history(kei.id, 10)).sessions[0].endedAt);
+});
+
+test('a canceled slow voice join cannot resurrect ownership after voice leave', async t => {
+  const f = await fixture(t), a = await f.node(), one = await f.connect(a.url);
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const original = a.runtime.act.bind(a.runtime);
+  t.mock.method(a.runtime, 'act', async (...args: Parameters<typeof original>) => {
+    if (args[1].kind === 'voiceJoin') { entered(); await gate; }
+    return original(...args);
+  });
+  const clientId = randomUUID();
+  const joining = one.socket.timeout(5000).emitWithAck('voice:join', { roomId: 'demo', clientId, muted: false });
+  await started;
+  const leaving = one.socket.timeout(5000).emitWithAck('voice:leave', { roomId: 'demo', clientId });
+  await delay(50); release();
+  assert.ok((await joining).ok); assert.ok((await leaving).ok);
+  const room = parseRoom((await f.control.command.hget(f.control.keys.room('demo'), 'state'))!, 'demo');
+  assert.deepEqual(room.voice, {}); assert.equal(Object.keys(room.presence).length, 1);
+});
+
+test('an owned Redis service stop/restart fails closed and restores adapter subscriptions and room state', async t => {
+  const binary = process.env.TEST_REDIS_SERVER ?? fileURLToPath(new URL('../../.local/redis/Redis-8.10.1-Windows-x64-cygwin/redis-server.exe', import.meta.url));
+  if (!existsSync(binary)) { t.skip('Set TEST_REDIS_SERVER to a Redis executable, or run redis:setup on Windows.'); return; }
+  const directory = await mkdtemp(join(tmpdir(), 'constellate-redis-test-'));
+  const listener = createServer(); listener.listen(0, '127.0.0.1'); await once(listener, 'listening');
+  const port = (listener.address() as { port: number }).port;
+  await new Promise<void>(resolve => listener.close(() => resolve()));
+  const redisUrl = `redis://127.0.0.1:${port}`;
+  let child: ChildProcess | undefined;
+  const start = async () => {
+    child = spawn(binary, ['--bind', '127.0.0.1', '--port', String(port), '--protected-mode', 'yes', '--save', '', '--dir', '.', '--dbfilename', 'test.rdb'],
+      { cwd: directory, windowsHide: true, stdio: 'ignore' });
+    await until(async () => {
+      assert.equal(child!.exitCode, null, 'owned Redis process should stay running');
+      const probe = new RedisConnections(redisUrl, 'constellate:probe');
+      try { await probe.connect(); return true; } catch { return false; } finally { probe.close(); }
+    }, 'owned Redis starts');
+  };
+  try {
+    await start();
+    await t.test('both nodes recover without duplicate guests or reset deadlines', async inner => {
+      const f = await fixture(inner, redisUrl), a = await f.node(), b = await f.node();
+      const one = await f.connect(a.url), two = await f.connect(b.url, mika);
+      await one.socket.timeout(5000).emitWithAck('timer:start', { roomId: 'demo' });
+      const deadline = one.timers.at(-1)!.endsAt;
+      await a.runtime.flush('demo');
+      const stopped = once(child!, 'exit');
+      await f.control.command.shutdown('SAVE').catch(() => {}); await stopped;
+      await until(() => !a.redis.ready && !b.redis.ready && !one.socket.connected && !two.socket.connected, 'all dependency connections close');
+      assert.equal((await fetch(`${a.url}/api/ready`)).status, 503);
+      assert.equal((await fetch(`${b.url}/api/ready`)).status, 503);
+      assert.equal((await fetch(`${a.url}/api/health`)).status, 200);
+      await assert.rejects(a.runtime.act('demo', { kind: 'sweep' }));
+      await start();
+      await until(() => a.redis.ready && b.redis.ready && f.control.ready, 'all Redis clients reconnect', 15000);
+      const restored = await f.connect(a.url), peer = await f.connect(b.url, mika);
+      assert.equal(restored.timers.at(-1)?.endsAt, deadline);
+      await until(() => restored.presence.at(-1)?.members.length === 2, 'two guests after Redis restart');
+      await restored.socket.timeout(5000).emitWithAck('reaction:send', { roomId: 'demo', kind: 'heart' });
+      await until(() => peer.reactions.length === 1, 'restored cross-node Pub/Sub subscriptions');
+      assert.equal((await fetch(`${a.url}/api/ready`)).status, 200);
+      assert.equal((await f.studies.personal(kei.id, 'UTC')).overall.sessions, 1);
+    });
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) { const stopped = once(child, 'exit'); child.kill(); await stopped; }
+    const target = resolve(directory), expectedParent = resolve(tmpdir());
+    assert.ok(target.startsWith(`${expectedParent}\\constellate-redis-test-`) || target.startsWith(`${expectedParent}/constellate-redis-test-`));
+    await rm(target, { recursive: true, force: true });
+  }
 });

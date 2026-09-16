@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
-interface Scope { socketId: string; roomId: string; guestId: string; token: string }
+export interface Scope { socketId: string; roomId: string; guestId: string; token: string }
+export interface StatsAccessProvider {
+  resolve(token: string): Scope | undefined | Promise<Scope | undefined>;
+}
 /** Short-lived capabilities; never a public guest-ID query parameter. */
 export class StatsAccess {
   private tokens = new Map<string, Scope>();

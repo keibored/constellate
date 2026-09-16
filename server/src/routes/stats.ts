@@ -1,22 +1,22 @@
 import { Router, type Request, type Response } from 'express';
 import type { PostgresStudySessionRepository } from '../repositories/postgresStudySessionRepository.js';
-import type { StudySessionService } from '../services/studySessionService.js';
-import type { StatsAccess } from '../services/statsAccess.js';
+import type { StatsAccessProvider } from '../services/statsAccess.js';
 import { databaseErrorCode } from '../db/pool.js';
 
 class BadQuery extends Error {}
-export function statsRoutes(repository: PostgresStudySessionRepository, studies: StudySessionService, access: StatsAccess) {
+export function statsRoutes(repository: PostgresStudySessionRepository, studies: { flush(roomId?: string): Promise<void> }, access: StatsAccessProvider) {
   const router = Router();
   const handle = (read: (request: Request, guestId: string, roomId: string) => Promise<unknown>) => async (request: Request, response: Response) => {
     response.setHeader('Cache-Control', 'no-store');
     const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? '')?.[1];
-    const scope = token && access.resolve(token);
-    if (!scope) { response.status(401).json({ error: 'Join a room to view your study statistics.' }); return; }
     try {
-      await studies.flush();
+      const scope = token && await access.resolve(token);
+      if (!scope) { response.status(401).json({ error: 'Join a room to view your study statistics.' }); return; }
+      await studies.flush(scope.roomId);
       const data = await read(request, scope.guestId, scope.roomId);
       // Revocation during the database read must also prevent a response.
-      if (access.resolve(token!) !== scope) { response.status(401).json({ error: 'Reconnect to load your statistics.' }); return; }
+      const current = await access.resolve(token!);
+      if (!current || current.socketId !== scope.socketId || current.guestId !== scope.guestId || current.roomId !== scope.roomId) { response.status(401).json({ error: 'Reconnect to load your statistics.' }); return; }
       if (data === null) response.status(404).json({ error: 'This room no longer exists.' });
       else response.json(data);
     } catch (error) {

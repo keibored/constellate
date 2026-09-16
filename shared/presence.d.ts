@@ -1,6 +1,8 @@
 import type { TimerAction, TimerRequest, TimerStatePayload } from './timer';
 import type { ChatHistory, ChatMessage, ChatSendPayload } from './chat';
 import type { StatsAccessResult } from './stats';
+import type { ReactionKind, RoomReaction } from './reactions';
+import type { VoiceJoinRequest, VoiceJoinResult, VoiceParticipants, VoiceSignal, VoiceSignalRequest } from './voice';
 import type { PersistentOperation, RoomStatePayload, TaskCreatePayload, TaskTogglePayload, TaskDeletePayload, RoomRenamePayload } from './roomState';
 
 export type AvatarId = 'dark' | 'pink' | 'green';
@@ -24,15 +26,23 @@ export interface MemberPresence {
 }
 
 export interface RoomJoinPayload { roomId: string; user: RoomUser; status?: PresenceStatus; restore?: boolean }
-export interface PresenceList { roomId: string; members: MemberPresence[] }
+export interface PresenceList { roomId: string; members: MemberPresence[]; epoch?: string; revision?: number }
 export interface PresenceJoined { roomId: string; member: MemberPresence }
 export interface PresenceUpdated { roomId: string; member: MemberPresence }
 export interface PresenceLeft { roomId: string; userId: string }
 export interface StatusUpdatePayload { roomId: string; userId: string; status: PresenceStatus }
-export interface RoomError { message: string; operation?: 'status:update' | `timer:${TimerAction}` | 'chat:send' | PersistentOperation }
+export interface RoomError { message: string; operation?: 'status:update' | `timer:${TimerAction}` | 'chat:send' | 'reaction:send' | PersistentOperation }
 export type RoomResult = { ok: true } | { ok: false; error: string; code?: 'ROOM_NOT_FOUND'; retryable?: boolean };
 
 export interface ClientToServerEvents {
+  'voice:join': (payload: VoiceJoinRequest, acknowledge: (result: VoiceJoinResult) => void) => void;
+  'voice:leave': (payload: { roomId: string; clientId: string }, acknowledge: (result: RoomResult) => void) => void;
+  'voice:mute-state': (payload: { roomId: string; sessionId: string; muted: boolean }, acknowledge: (result: RoomResult) => void) => void;
+  'voice:offer': (payload: VoiceSignalRequest, acknowledge: (result: RoomResult) => void) => void;
+  'voice:answer': (payload: VoiceSignalRequest, acknowledge: (result: RoomResult) => void) => void;
+  'voice:ice-candidate': (payload: VoiceSignalRequest, acknowledge: (result: RoomResult) => void) => void;
+  'voice:restart': (payload: VoiceSignalRequest, acknowledge: (result: RoomResult) => void) => void;
+  'reaction:send': (payload: { roomId: string; kind: ReactionKind }, acknowledge: (result: RoomResult) => void) => void;
   'stats:access': (payload: { roomId: string }, acknowledge: (result: StatsAccessResult) => void) => void;
   'tasks:sync': (payload: { roomId: string }, acknowledge: (result: RoomResult) => void) => void;
   'task:create': (payload: TaskCreatePayload, acknowledge: (result: RoomResult) => void) => void;
@@ -51,6 +61,13 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  'voice:participants': (payload: VoiceParticipants) => void;
+  'voice:offer': (payload: VoiceSignal) => void;
+  'voice:answer': (payload: VoiceSignal) => void;
+  'voice:ice-candidate': (payload: VoiceSignal) => void;
+  'voice:restart': (payload: VoiceSignal) => void;
+  'reaction:new': (payload: RoomReaction) => void;
+  'reaction:history': (payload: { roomId: string; reactions: RoomReaction[] }) => void;
   'room:state': (payload: RoomStatePayload) => void;
   'presence:list': (payload: PresenceList) => void;
   'presence:joined': (payload: PresenceJoined) => void;

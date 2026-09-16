@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { test, type TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { io, type Socket } from 'socket.io-client';
-import { createAppServer } from '../src/app.js';
+import { createAppServer } from './helpers/appServer.js';
 import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import { DISCONNECT_GRACE_MS, RoomPresence } from '../src/socket/roomPresence.js';
 import type { ClientToServerEvents, ServerToClientEvents, RoomJoinPayload, RoomUser, PresenceUpdated, StatusUpdatePayload } from '../../shared/presence.js';

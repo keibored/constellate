@@ -10,7 +10,7 @@ import { migrate } from '../../src/db/migrations.js';
 import { PostgresStudySessionRepository } from '../../src/repositories/postgresStudySessionRepository.js';
 import { PostgresRoomRepository } from '../../src/repositories/postgresRoomRepository.js';
 import { StudySessionService } from '../../src/services/studySessionService.js';
-import { createAppServer } from '../../src/app.js';
+import { createAppServer } from '../helpers/appServer.js';
 import type { StudyWrite } from '../../src/repositories/studySessionRepository.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../../shared/presence.js';
 

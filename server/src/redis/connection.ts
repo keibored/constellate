@@ -1,7 +1,7 @@
 import { Redis } from 'ioredis';
 
 export class RuntimeUnavailableError extends Error {
-  constructor() { super('The realtime state service is unavailable. Reconnecting…'); }
+  constructor(cause?: unknown) { super('The realtime state service is unavailable. Reconnecting…', { cause }); }
 }
 export function redisKeys(prefix: string) {
   if (!/^[A-Za-z0-9:_-]{1,100}$/.test(prefix)) throw new Error('REDIS_KEY_PREFIX must contain 1–100 letters, numbers, colons, underscores or hyphens.');
@@ -19,6 +19,7 @@ export class RedisConnections {
   readonly keys: ReturnType<typeof redisKeys>;
   private available = false;
   private stopped = false;
+  private connectionError?: unknown;
   onAvailability?: (ready: boolean) => void;
   constructor(url: string, prefix = 'constellate') {
     let parsed: URL;
@@ -29,7 +30,9 @@ export class RedisConnections {
       connectTimeout: 3000, commandTimeout: 4000, retryStrategy: attempt => Math.min(5000, 250 * attempt) });
     this.command = create(); this.publisher = create(); this.subscriber = create();
     for (const client of this.clients) {
-      client.on('error', () => {}); // State changes log once; never log a credential-bearing URL/error.
+      // connect() can reject with a generic "connection closed" error. Preserve
+      // the underlying code for startup diagnostics without logging its URL.
+      client.on('error', error => { this.connectionError = error; });
       for (const event of ['ready', 'close', 'end'] as const) client.on(event, () => {
         if (this.stopped) return;
         const ready = this.ready;
@@ -45,7 +48,7 @@ export class RedisConnections {
   requireReady() { if (!this.ready) throw new RuntimeUnavailableError(); }
   async connect() {
     try { await Promise.all(this.clients.map(client => client.connect())); }
-    catch { this.close(); throw new RuntimeUnavailableError(); }
+    catch (error) { this.close(); throw new RuntimeUnavailableError(this.connectionError ?? error); }
   }
   async health() { this.requireReady(); await this.command.ping(); }
   close() { this.stopped = true; for (const client of this.clients) client.disconnect(); }

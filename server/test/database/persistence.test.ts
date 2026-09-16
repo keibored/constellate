@@ -11,7 +11,8 @@ import { loadServerEnvironment } from '../../src/config.js';
 import { createDatabasePool } from '../../src/db/pool.js';
 import { assertMigrationsCurrent, migrate } from '../../src/db/migrations.js';
 import { PostgresRoomRepository } from '../../src/repositories/postgresRoomRepository.js';
-import { createAppServer } from '../../src/app.js';
+import { createAppServer } from '../helpers/appServer.js';
+import { RedisConnections } from '../../src/redis/connection.js';
 import type { ClientToServerEvents, ServerToClientEvents, RoomUser } from '../../../shared/presence.js';
 import type { RoomStatePayload } from '../../../shared/roomState.js';
 
@@ -143,6 +144,10 @@ test('real PostgreSQL Socket.IO actions synchronize after commit, validate owner
 
 test('room name, tasks and completion survive stopping and restarting the actual backend process', async t => {
   const f = await fixture(t);
+  const redisEnv = loadServerEnvironment(); assert.ok(redisEnv.REDIS_URL, 'Run npm run redis:setup before integration tests.');
+  const redisPrefix = `constellate:test:${randomBytes(8).toString('hex')}`;
+  const redis = new RedisConnections(redisEnv.REDIS_URL, redisPrefix); await redis.connect();
+  f.cleanup.push(async () => { const keys = await redis.command.keys(`${redisPrefix}:*`); if (keys.length) await redis.command.del(...keys); redis.close(); });
   await migrate(f.pool);
   const reservation = createServer();
   reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening');
@@ -158,7 +163,7 @@ test('room name, tasks and completion survive stopping and restarting the actual
   f.cleanup.push(stop);
   const start = async () => {
     child = spawn(process.execPath, [fileURLToPath(new URL('../../dist/index.js', import.meta.url))], {
-      env: { ...process.env, DATABASE_URL: f.url, PORT: String(port), CLIENT_ORIGINS: origin }, windowsHide: true,
+      env: { ...process.env, DATABASE_URL: f.url, REDIS_URL: redisEnv.REDIS_URL, REDIS_KEY_PREFIX: redisPrefix, PORT: String(port), CLIENT_ORIGINS: origin }, windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout?.on('data', data => { logs += data; });

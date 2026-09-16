@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { createLogger, createServer as createViteServer } from 'vite';
 import { io } from 'socket.io-client';
-import { createAppServer } from '../src/app.js';
+import { createAppServer } from './helpers/appServer.js';
 import { TestRoomRepository } from './helpers/testRoomRepository.js';
 import { connectRoom, type ConnectionStatus } from '../../client/src/services/roomConnection.js';
 import type { RoomSocket } from '../../client/src/services/socket.js';
