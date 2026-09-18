@@ -146,9 +146,10 @@ try {
     await listen(createHttpsServer(tls, staticApp), frontendPort);
     pass('built React assets and two production Node processes run behind separate HTTPS/WSS origins');
   }
-  assert.equal((await readApi('/api/health')).status, 200);
+  const publicHealth = await readApi('/api/health'); assert.equal(publicHealth.status, 200);
+  assert.deepEqual(JSON.parse(publicHealth.text), { status: 'ok', server: 'ok', database: 'ok', redis: 'ok' });
   const ready = await readApi('/api/ready'); assert.equal(ready.status, 200);
-  assert.deepEqual(JSON.parse(ready.text), { status: 'ok', database: 'ok', redis: 'ok' });
+  assert.deepEqual(JSON.parse(ready.text), { status: 'ok', server: 'ok', database: 'ok', redis: 'ok' });
   assert.equal(ready.headers['cache-control'], 'no-store');
   assert.equal((await readApi('/api/ready', { Origin: 'https://untrusted.example' })).status, 403);
   const cors = await readApi('/api/stats/me', { Origin: frontendUrl, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' }, 'OPTIONS');
