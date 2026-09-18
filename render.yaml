@@ -8,10 +8,8 @@ services:
     plan: free
     numInstances: 1
     buildCommand: npm ci --include=dev && npm run build --workspace=server
-    preDeployCommand: npm run db:migrate:production
-    startCommand: node server/dist/index.js
+    startCommand: npm run db:migrate:production && node server/dist/index.js
     healthCheckPath: /api/health
-    maxShutdownDelaySeconds: 30
     autoDeployTrigger: "off"
     envVars:
       - key: NODE_ENV
