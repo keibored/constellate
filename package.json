@@ -3,11 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=22.12.0 <25" },
   "workspaces": [
     "client",
     "server"
   ],
   "scripts": {
+    "start": "node server/dist/index.js",
+    "build:vercel": "node scripts/check-vercel-env.mjs && npm run build --workspace=client",
+    "db:migrate:production": "node server/dist/db/migrate.js",
+    "test:production": "npm run build && node server/test/browser/production.mjs",
+    "deploy:verify": "npm run build --workspace=server && node server/test/browser/production.mjs --remote",
     "redis:setup": "npm run redis:setup --prefix server",
     "redis:start": "npm run redis:start --prefix server",
     "redis:stop": "npm run redis:stop --prefix server",

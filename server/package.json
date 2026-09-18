@@ -15,6 +15,7 @@
     "db:start": "node scripts/local-postgres.mjs start",
     "db:stop": "node scripts/local-postgres.mjs stop",
     "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate:production": "node dist/db/migrate.js",
     "test:db": "npm run build && node --import tsx --test test/database/*.test.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
