@@ -1,5 +1,5 @@
-# Reviewed paid production baseline. Import only into the intended Render account.
-# Public frontend/API origins are prompted; database credentials stay server-only.
+# Backend-only production baseline. The React frontend is deployed once on Vercel.
+# The Vercel production origin is prompted; datastore credentials stay server-only.
 services:
   - type: web
     name: constellate-api
@@ -10,7 +10,7 @@ services:
     buildCommand: npm ci --include=dev && npm run build --workspace=server
     preDeployCommand: npm run db:migrate:production
     startCommand: node server/dist/index.js
-    healthCheckPath: /api/ready
+    healthCheckPath: /api/health
     maxShutdownDelaySeconds: 30
     autoDeployTrigger: "off"
     envVars:
@@ -41,44 +41,6 @@ services:
           property: connectionString
       - key: REDIS_KEY_PREFIX
         value: constellate:production
-
-  - type: web
-    name: constellate-web
-    runtime: static
-    buildCommand: npm ci --include=dev && npm run build --workspace=client
-    staticPublishPath: client/dist
-    autoDeployTrigger: "off"
-    envVars:
-      - key: NODE_VERSION
-        value: 24.16.0
-      - key: VITE_SERVER_URL
-        sync: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-      - path: /*
-        name: Permissions-Policy
-        value: microphone=(self), camera=(), geolocation=()
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /*
-        name: Strict-Transport-Security
-        value: max-age=31536000
-      - path: /*
-        name: Cache-Control
-        value: no-cache
-      - path: /assets/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
 
   - type: keyvalue
     name: constellate-redis
