@@ -245,7 +245,7 @@ try {
   assert.equal((await state(a)).calls, 0);
   await a.getByLabel(`Deploy task ${runId}`, { exact: true }).waitFor();
   pass('refresh restores persistent room state without automatically capturing a microphone');
-  for (const page of pages) { await page.getByLabel('Leave room', { exact: true }).click(); await page.waitForURL('**/join'); assert.equal((await state(page)).live, 0); }
+  for (const page of pages) { await page.getByLabel('Leave room', { exact: true }).click(); await page.waitForURL(url => url.pathname === '/' && !url.searchParams.has('room')); assert.equal((await state(page)).live, 0); }
   assert.deepEqual(report.errors, []);
   if (remote) report.limitations.push(`Verification created room ${room} with two synthetic guests, one task and one chat message; normal retention applies.`);
 } catch (error) { report.errors.push(error.stack ?? String(error)); console.error(error); process.exitCode = 1; }
