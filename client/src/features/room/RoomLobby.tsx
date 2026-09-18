@@ -12,7 +12,7 @@ export function RoomLobby() {
       event.preventDefault();
       const value = roomId.trim();
       if (!isRoomId(value)) { setError('Use 1–64 letters, numbers, hyphens or underscores, starting with a letter or number.'); return; }
-      window.location.assign(`/r/${value}`);
+      window.location.assign(`/?room=${encodeURIComponent(value)}`);
     }}>
       <label htmlFor="room-code">Room code</label>
       <input id="room-code" autoFocus required maxLength={64} placeholder="demo" value={roomId} onChange={event => { setRoomId(event.target.value); setError(null); }} aria-describedby={error ? 'room-entry-error' : 'room-entry-hint'} />
