@@ -1,46 +1,55 @@
 import { createAppServer } from './app.js';
-import { loadServerConfig, loadServerEnvironment } from './config.js';
+import { loadServerConfig, loadServerEnvironment, loadRuntimeConfig, ConfigurationError } from './config.js';
 import { databaseErrorCode } from './db/pool.js';
 import { connectDependencies, StartupError } from './startup.js';
 import { PostgresRoomRepository } from './repositories/postgresRoomRepository.js';
 import { PostgresStudySessionRepository } from './repositories/postgresStudySessionRepository.js';
 import { RedisRoomRuntime } from './redis/roomRuntime.js';
+import { log } from './logger.js';
+import { createShutdown } from './shutdown.js';
 
 async function main() {
   const environment = loadServerEnvironment();
   const { port, allowedOrigins } = loadServerConfig(environment);
+  const options = loadRuntimeConfig(environment);
   const { pool, redis } = await connectDependencies(environment);
   const studyRepository = new PostgresStudySessionRepository(pool);
   const rooms = new PostgresRoomRepository(pool);
   const runtime = new RedisRoomRuntime(redis, rooms, studyRepository);
-  const { httpServer, io, closeRuntime } = createAppServer(allowedOrigins, rooms, { runtime, repository: studyRepository });
-  let stopping = false;
-  const shutdown = () => {
-    if (stopping) return;
-    stopping = true;
-    io.close(() => {
-      void (async () => {
-        try { await closeRuntime(); }
-        catch (error) { console.error(`[study] Final checkpoint failed (${databaseErrorCode(error)}).`); }
-        finally { redis.close(); await pool.end(); }
-      })().catch(error => console.error(`[database] Shutdown failed (${databaseErrorCode(error)}).`));
-    });
-  };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
-  httpServer.on('error', error => {
-    console.error(`[startup:http] Cannot listen on port ${port} (${(error as NodeJS.ErrnoException).code ?? 'ERROR'}). Stop the existing backend before starting another; check PORT.`);
+  const { httpServer, io, closeRuntime, beginDrain } = createAppServer(allowedOrigins, rooms, { runtime, repository: studyRepository }, options);
+  const shutdown = createShutdown({
+    beginDrain,
+    closeConnections: () => new Promise<void>(resolve => {
+      // io.disconnectSockets()/namespace disconnect suppresses client retries.
+      // A transport close instead triggers the existing reconnect + room rejoin.
+      for (const socket of io.sockets.sockets.values()) socket.conn.close();
+      io.close(() => resolve());
+      httpServer.closeIdleConnections();
+    }),
+    closeRuntime,
+    closeRedis: () => redis.close(),
+    closeDatabase: () => pool.end(),
+  }, options.shutdownTimeoutMs);
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+  const fatal = (event: string, error: unknown) => {
+    log('error', event, 'Fatal runtime error; shutting down.', { code: databaseErrorCode(error) });
     process.exitCode = 1;
-    shutdown();
+    void shutdown(event);
+  };
+  process.once('uncaughtException', error => fatal('server.uncaught_exception', error));
+  process.once('unhandledRejection', error => fatal('server.unhandled_rejection', error));
+  httpServer.on('error', error => {
+    log('error', 'server.listen_failed', `[startup:http] Cannot listen on port ${port}. Check PORT and stop any duplicate backend.`, { port, code: databaseErrorCode(error) });
+    process.exitCode = 1;
+    void shutdown('listen_error');
   });
-  httpServer.listen(port, () => {
-    console.log(`Server running at http://127.0.0.1:${port} (PostgreSQL ready; Redis ready)`);
-    console.log(`[startup:http] Listening on port ${port} (PID ${process.pid}).`);
+  httpServer.listen(port, options.host, () => {
+    log('info', 'server.listening', options.production ? 'HTTP and Socket.IO server ready.' : `Server running at http://127.0.0.1:${port} (PostgreSQL ready; Redis ready)`, { port, pid: process.pid });
   });
 }
 
 main().catch(error => {
-  console.error(error instanceof StartupError ? error.message : `[startup] Backend startup failed (${databaseErrorCode(error)}). Check server/.env and the startup configuration.`);
-  console.error('[startup] Backend did not start: no HTTP/Socket.IO listener was opened. Fix the error above, then restart npm run dev.');
+  log('error', 'server.startup_failed', error instanceof StartupError || error instanceof ConfigurationError ? error.message : '[startup] Backend startup failed. Check production environment configuration or server/.env for local development.', { code: databaseErrorCode(error) });
   process.exitCode = 1;
 });

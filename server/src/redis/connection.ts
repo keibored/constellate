@@ -1,4 +1,5 @@
 import { Redis } from 'ioredis';
+import { log } from '../logger.js';
 
 export class RuntimeUnavailableError extends Error {
   constructor(cause?: unknown) { super('The realtime state service is unavailable. Reconnecting…', { cause }); }
@@ -38,7 +39,7 @@ export class RedisConnections {
         const ready = this.ready;
         if (ready === this.available) return;
         this.available = ready;
-        console.log(ready ? '[redis] Realtime state service ready.' : '[redis] Realtime state unavailable; retrying with backoff.');
+        log(ready ? 'info' : 'warn', ready ? 'redis.ready' : 'redis.unavailable', ready ? '[redis] Realtime state service ready.' : '[redis] Realtime state unavailable; retrying with backoff.');
         this.onAvailability?.(ready);
       });
     }
@@ -50,6 +51,6 @@ export class RedisConnections {
     try { await Promise.all(this.clients.map(client => client.connect())); }
     catch (error) { this.close(); throw new RuntimeUnavailableError(this.connectionError ?? error); }
   }
-  async health() { this.requireReady(); await this.command.ping(); }
+  async health() { this.requireReady(); await Promise.all(this.clients.map(client => client.ping())); }
   close() { this.stopped = true; for (const client of this.clients) client.disconnect(); }
 }

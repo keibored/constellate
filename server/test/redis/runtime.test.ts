@@ -284,7 +284,9 @@ test('an owned Redis service stop/restart fails closed and restores adapter subs
       await until(() => !a.redis.ready && !b.redis.ready && !one.socket.connected && !two.socket.connected, 'all dependency connections close');
       assert.equal((await fetch(`${a.url}/api/ready`)).status, 503);
       assert.equal((await fetch(`${b.url}/api/ready`)).status, 503);
-      assert.equal((await fetch(`${a.url}/api/health`)).status, 200);
+      const health = await fetch(`${a.url}/api/health`);
+      assert.equal(health.status, 503);
+      assert.deepEqual(await health.json(), { status: 'unavailable', server: 'ok', database: 'ok', redis: 'unavailable' });
       await assert.rejects(a.runtime.act('demo', { kind: 'sweep' }));
       await start();
       await until(() => a.redis.ready && b.redis.ready && f.control.ready, 'all Redis clients reconnect', 15000);

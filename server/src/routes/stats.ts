@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import type { PostgresStudySessionRepository } from '../repositories/postgresStudySessionRepository.js';
 import type { StatsAccessProvider } from '../services/statsAccess.js';
 import { databaseErrorCode } from '../db/pool.js';
+import { log } from '../logger.js';
 
 class BadQuery extends Error {}
 export function statsRoutes(repository: PostgresStudySessionRepository, studies: { flush(roomId?: string): Promise<void> }, access: StatsAccessProvider) {
@@ -21,7 +22,7 @@ export function statsRoutes(repository: PostgresStudySessionRepository, studies:
       else response.json(data);
     } catch (error) {
       if (error instanceof BadQuery) response.status(400).json({ error: error.message });
-      else { console.error(`[study] Stats query failed (${databaseErrorCode(error)}).`); response.status(503).json({ error: 'Study history is temporarily unavailable. Please try again.' }); }
+      else { log('error', 'stats.query_failed', '[study] Stats query failed.', { code: databaseErrorCode(error) }); response.status(503).json({ error: 'Study history is temporarily unavailable. Please try again.' }); }
     }
   };
   router.get('/stats/me', handle(async (request, guestId) => {

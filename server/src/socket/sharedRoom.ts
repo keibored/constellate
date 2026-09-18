@@ -10,14 +10,21 @@ import { RedisStatsAccess } from '../redis/statsAccess.js';
 import { members, timerSnapshot, voiceParticipants, type RuntimeAction } from '../redis/roomState.js';
 import { attachVoiceHandlers } from './voiceHandlers.js';
 import { RuntimeUnavailableError } from '../redis/connection.js';
+import { databaseErrorCode } from '../db/pool.js';
+import { log } from '../logger.js';
 
 interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string }
 const channel = (roomId: string) => `room:${roomId}`;
 
-export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess) {
+export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess, options: { production?: boolean } = {}) {
+  let draining = false;
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
-    allowRequest: (request, callback) => callback(null, runtime.redis.ready && (!request.headers.origin || allowedOrigins.includes(request.headers.origin))),
+    allowRequest: (request, callback) => callback(null, !draining && runtime.redis.ready && (!request.headers.origin || allowedOrigins.includes(request.headers.origin))),
+    ...(options.production ? { transports: ['websocket' as const] } : {}),
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    perMessageDeflate: false,
     maxHttpBufferSize: 16_384,
   });
   io.adapter(createAdapter(runtime.redis.publisher, runtime.redis.subscriber, { key: runtime.redis.keys.adapter, publishOnSpecificResponseChannel: true }));
@@ -41,14 +48,19 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
   };
   io.on('connection', socket => {
     let queue = Promise.resolve();
+    let pending = 0;
     const schedule = (work: () => Promise<void>, acknowledge?: (result: RoomResult) => void, operation?: RoomError['operation']) => {
+      // Disconnected sockets must still enqueue their cleanup while draining.
+      if (socket.connected && (draining || pending >= 64)) { socket.conn.close(); return; }
+      pending++;
       const job = queue.then(work).catch(error => {
         const missing = error instanceof RoomNotFoundError;
+        if (!missing) log('warn', 'socket.operation_failed', 'Shared room operation failed.', { code: databaseErrorCode(error), operation });
         const message = missing ? error.message : error instanceof RuntimeUnavailableError ? error.message : 'Shared room state is temporarily unavailable. Please reconnect and try again.';
         if (socket.connected) socket.emit('room:error', { message, ...(operation ? { operation } : {}) });
         if (typeof acknowledge === 'function') acknowledge({ ok: false, error: message, ...(missing ? { code: 'ROOM_NOT_FOUND' as const } : { retryable: true }) });
       });
-      queue = job; jobs.add(job); void job.finally(() => jobs.delete(job));
+      queue = job; jobs.add(job); void job.finally(() => { jobs.delete(job); pending--; });
     };
     const fail = (message: string, acknowledge?: (result: RoomResult) => void, operation?: RoomError['operation']) => {
       if (socket.connected) socket.emit('room:error', { message, ...(operation ? { operation } : {}) });
@@ -142,10 +154,13 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       if (current?.roomId !== roomId) return null;
       const member = await runtime.member(roomId, current.userId, socket.id);
       return member ? { id: member.userId, nickname: member.nickname, avatar: member.avatar } : null;
-    }, state => io.to(channel(state.roomId)).emit('room:state', state), runtime);
+    }, state => io.to(channel(state.roomId)).emit('room:state', state), runtime, schedule);
     attachVoiceHandlers(socket, runtime, () => socket.data.membership, (target, event, signal) => io.to(target).emit(event, signal), schedule);
     socket.on('disconnect', () => schedule(() => leave(false)));
   });
   runtime.start();
-  return { io, closeRuntime: async () => { await Promise.allSettled([...jobs]); await runtime.close(); } };
+  return { io, beginDrain: () => { draining = true; }, closeRuntime: async () => {
+    while (jobs.size) await Promise.allSettled([...jobs]);
+    await runtime.close();
+  } };
 }

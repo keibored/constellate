@@ -5,6 +5,7 @@ import type { PostgresStudySessionRepository } from '../repositories/postgresStu
 import { RedisConnections, RuntimeUnavailableError } from './connection.js';
 import { applyRoomAction, freshRoom, nextRoomDue, parseRoom, RUNTIME_TIMING, type RuntimeAction, type RuntimeResult, type RuntimeRoom } from './roomState.js';
 import type { VoiceTarget } from '../../../shared/voice.js';
+import { log } from '../logger.js';
 
 // Compare opaque versions, not just revision numbers (protects against expiry/ABA).
 const commit = `
@@ -27,20 +28,26 @@ export class RedisRoomRuntime {
   private sweepTimer?: ReturnType<typeof setInterval>;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private lastErrorLog = 0;
+  private closing = false;
+  private background = new Set<Promise<void>>();
   onChange?: (result: RuntimeResult, now: number) => void;
   onExpiredSocket?: (socketId: string) => void;
   constructor(readonly redis: RedisConnections, private rooms: RoomRepository, private studies: PostgresStudySessionRepository,
     readonly timing = RUNTIME_TIMING) {}
   start() {
-    this.sweepTimer = setInterval(() => { void this.sweep().catch(error => this.report(error)); }, this.timing.sweep);
-    this.heartbeatTimer = setInterval(() => { void this.heartbeat().catch(error => this.report(error)); }, this.timing.heartbeat);
+    const track = (work: Promise<void>) => {
+      const job = work.catch(error => this.report(error));
+      this.background.add(job); void job.finally(() => this.background.delete(job));
+    };
+    this.sweepTimer = setInterval(() => { track(this.sweep()); }, this.timing.sweep);
+    this.heartbeatTimer = setInterval(() => { track(this.heartbeat()); }, this.timing.heartbeat);
     this.sweepTimer.unref(); this.heartbeatTimer.unref();
-    void this.sweep().catch(error => this.report(error));
+    track(this.sweep());
   }
   private report(_error: unknown) {
     if (Date.now() - this.lastErrorLog < 30_000) return;
     this.lastErrorLog = Date.now();
-    console.error('[runtime] Shared state/checkpoint unavailable. Pending accounting is retained; check Redis and PostgreSQL.');
+    log('error', 'runtime.checkpoint_failed', '[runtime] Shared state/checkpoint unavailable. Pending accounting is retained; check Redis and PostgreSQL.');
   }
   private async load(roomId: string) {
     this.redis.requireReady();
@@ -50,7 +57,7 @@ export class RedisRoomRuntime {
     if (values[1]) {
       try { room = parseRoom(values[1], roomId); }
       catch {
-        if (Date.now() - this.lastErrorLog >= 30_000) { this.lastErrorLog = Date.now(); console.error(`[runtime] Invalid state for room ${roomId}; retained for repair instead of overwriting pending accounting.`); }
+        if (Date.now() - this.lastErrorLog >= 30_000) { this.lastErrorLog = Date.now(); log('error', 'runtime.invalid_state', '[runtime] Invalid room state retained for repair.'); }
         throw new RuntimeUnavailableError();
       }
     }
@@ -130,7 +137,7 @@ export class RedisRoomRuntime {
     await this.redis.command.eval(remove, 2, this.redis.keys.room(roomId), this.redis.keys.due, current.version, roomId);
   }
   async sweep() {
-    if (this.sweeping || !this.redis.ready) return;
+    if (this.closing || this.sweeping || !this.redis.ready) return;
     this.sweeping = true;
     try {
       const time = await this.redis.command.time(); const now = Number(time[0]) * 1000 + Math.floor(Number(time[1]) / 1000);
@@ -149,7 +156,7 @@ export class RedisRoomRuntime {
     } finally { this.sweeping = false; }
   }
   async heartbeat() {
-    if (this.heartbeating || !this.redis.ready) return;
+    if (this.closing || this.heartbeating || !this.redis.ready) return;
     this.heartbeating = true;
     try {
       const rooms = new Map<string, string[]>();
@@ -167,7 +174,9 @@ export class RedisRoomRuntime {
     } finally { this.heartbeating = false; }
   }
   async close() {
+    this.closing = true;
     clearInterval(this.sweepTimer); clearInterval(this.heartbeatTimer);
+    await Promise.allSettled([...this.background]);
     for (const [socketId, membership] of this.sockets) {
       try { await this.act(membership.roomId, { kind: 'leave', guestId: membership.guestId, socketId, immediate: false }); } catch { /* leases cover dependency failure */ }
     }

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { loadRuntimeConfig, loadServerConfig, loadServerEnvironment } from '../src/config.js';
 import { boundedHealth } from '../src/app.js';
 import { createShutdown } from '../src/shutdown.js';
@@ -37,6 +39,26 @@ test('frontend backend URL permits same origin or explicit HTTPS and rejects mix
   for (const value of ['http://api.example.com', 'https://localhost:3000', 'wss://api.example.com', '/api', 'https://u:p@api.example.com', 'https://api.example.com/path', 'https://api.example.com?q=1']) {
     assert.throws(() => parseServerUrl(value, true), /VITE_SERVER_URL/);
   }
+});
+
+test('Vercel builds the single frontend from the workspace root with SPA routing', async () => {
+  const config = JSON.parse(await readFile(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  assert.equal(config.framework, 'vite');
+  assert.equal(config.installCommand, 'npm ci --include=dev');
+  assert.equal(config.buildCommand, 'npm run build:vercel');
+  assert.equal(config.outputDirectory, 'client/dist');
+  assert.deepEqual(config.rewrites, [{ source: '/(.*)', destination: '/index.html' }]);
+  const checker = fileURLToPath(new URL('../../scripts/check-vercel-env.mjs', import.meta.url));
+  const check = (value?: string) => {
+    const env = { ...process.env };
+    if (value === undefined) delete env.VITE_SERVER_URL;
+    else env.VITE_SERVER_URL = value;
+    return spawnSync(process.execPath, [checker], { env, encoding: 'utf8' });
+  };
+  assert.equal(check().status, 1);
+  assert.equal(check('http://api.example.com').status, 1);
+  assert.equal(check('https://api.example.com/').status, 1);
+  assert.equal(check('https://api.example.com').status, 0);
 });
 
 test('health checks return bounded failure for rejection and stuck dependencies', async () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PersonalStats, RoomStudyStats, StudyHistory } from '../../../../shared/stats';
 import type { ConnectionStatus } from '../../services/roomConnection';
 import { roomSocket } from '../../services/socket';
+import { apiUrl } from '../../services/api';
 
 export function useStudyStats(roomId: string, connection: ConnectionStatus) {
   const [personal, setPersonal] = useState<PersonalStats | null>(null);
@@ -15,7 +16,7 @@ export function useStudyStats(roomId: string, connection: ConnectionStatus) {
   const busy = useRef(false);
 
   const read = async <T,>(path: string, credential: string, signal: AbortSignal): Promise<T> => {
-    const response = await fetch(path, { headers: { Authorization: `Bearer ${credential}` }, signal, cache: 'no-store' });
+    const response = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${credential}` }, signal, cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? 'Could not load your study history.');
     return data as T;

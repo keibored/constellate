@@ -4,6 +4,7 @@ import type { RoomStatePayload } from '../../../shared/roomState.js';
 import { RoomStateError, type RoomMutation, type RoomRepository } from '../repositories/roomRepository.js';
 import { databaseErrorCode } from '../db/pool.js';
 import { readRoomId } from './validation.js';
+import { log } from '../logger.js';
 
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value);
@@ -13,9 +14,10 @@ export function attachPersistentRoomHandlers(
   member: (roomId: string) => RoomUser | null | Promise<RoomUser | null>,
   broadcast: (state: RoomStatePayload) => void,
   studies?: { sessionId(roomId: string, guestId: string): string | undefined | Promise<string | undefined>; flush(roomId?: string): Promise<void> },
+  schedule: (work: () => Promise<void>) => void = work => { void work(); },
 ) {
   for (const operation of ['tasks:sync', 'task:create', 'task:toggle', 'task:delete', 'room:rename'] as const) {
-    socket.on(operation, async (input: unknown, acknowledge?: (result: RoomResult) => void) => {
+    socket.on(operation, (input: unknown, acknowledge?: (result: RoomResult) => void) => schedule(async () => {
       const fail = (message: string) => {
         if (!socket.connected) return;
         socket.emit('room:error', { operation, message });
@@ -55,10 +57,10 @@ export function attachPersistentRoomHandlers(
       } catch (error) {
         if (error instanceof RoomStateError) fail(error.message);
         else {
-          console.error(`[database] ${operation} failed (${databaseErrorCode(error)}).`);
+          log('error', 'database.mutation_failed', `[database] ${operation} failed (${databaseErrorCode(error)}).`, { operation, code: databaseErrorCode(error) });
           fail('Saved room data is temporarily unavailable. Try again when the database is back.');
         }
       }
-    });
+    }));
   }
 }
