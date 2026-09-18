@@ -1,84 +1,166 @@
 # Production deployment and hardening V1
 
-## Status and scope
+Constellate uses one Vercel project for the React/Vite frontend and one Render Blueprint for the Node/Express/Socket.IO backend, PostgreSQL, and Redis. No live resources are created by this repository work.
 
-The deployment configuration and hardening are implemented. Local verification uses the **compiled production app over HTTPS/WSS**, real PostgreSQL/Redis and synthetic audio. No production account, domains or credentials were supplied; **no live deployment or provisioned datastore is claimed**. Hosted acceptance below remains pending. No UI redesign, account system, media relay or major feature was added.
+## Production topology
 
-## Provisioning and first release
+```text
+Browser
+  ├─ HTTPS static app ───────────────> Vercel
+  ├─ HTTPS API + WSS signaling ─────> Render Node service
+  └─ peer-to-peer WebRTC audio ─────> other browsers
 
-Root `render.yaml` defines a static frontend, Node backend, PostgreSQL 18 and Redis-compatible Key Value in Singapore. PostgreSQL/Redis deny public connections. Redis has persistence and `noeviction` because evicting pending accounting is unsafe. The blueprint selects paid, always-on resources; review the account's current cost estimate before creating them. Capacity is an initial baseline, not a load-test result. [Blueprint reference](https://render.com/docs/blueprint-spec).
+Render Node service
+  ├─ durable rooms/tasks/history ───> Render PostgreSQL
+  └─ live state + Socket.IO Pub/Sub -> Render Key Value (Redis)
+```
 
-1. Choose the account, resource names, region and actual frontend/backend HTTPS origins. Provider-assigned domains are sufficient; custom domains are optional.
-2. Run the README verification commands against test services. Commit/push the validated files to the release branch of `https://github.com/keibored/constellate`, then import `render.yaml` as a Blueprint.
-3. Confirm the resource names are new or intentionally target existing services. Matching names can update existing resources. Give staging separate names, database and Redis prefix.
-4. The blueprint injects private `DATABASE_URL` and `REDIS_URL` connections into the backend. Enter `CLIENT_ORIGINS` as the exact frontend origin, e.g. `https://study.example.com`, without a slash. Enter frontend `VITE_SERVER_URL` as the API origin, e.g. `https://api.example.com`.
-5. If assigned domains differ from the initial values, update both using the actual URLs, redeploy the backend and **rebuild/redeploy the frontend**. Do not assume resource names guarantee subdomains. Mismatched origins intentionally prevent browser access.
-6. Confirm the pre-deploy migration command succeeds and `/api/ready` returns 200. Frontend/backend releases must remain compatible.
-7. Confirm TLS certificates for both origins and complete any custom-domain DNS setup. Render terminates HTTPS/WSS at the edge and forwards to the HTTP Node listener. [WebSockets](https://render.com/docs/websocket), [static hosting](https://render.com/docs/static-sites).
+Audio does not pass through Render, Socket.IO, PostgreSQL, or Redis. Socket.IO only carries signaling and application events.
 
-Both builds run from the **repository root** to preserve workspaces/shared contracts. The frontend publishes `client/dist`. The backend starts `node server/dist/index.js`; SQL files remain in `server/db/migrations`. Node is pinned in `.node-version`. Use compiled code, not Vite preview, watchers, serverless functions or Windows local helpers. Automatic deployments are disabled for deliberate release after checks pass.
+## Vercel frontend
 
-`sync: false` values are prompted on initial creation; later changes belong in service environment settings. Production ignores local `.env` files. Never put database/Redis URLs or permanent TURN credentials in public `VITE_*` values. The static frontend needs an explicit backend URL; blank only works with a separately configured same-origin API/WebSocket reverse proxy.
+Create exactly one Vercel project from this repository. Use these project settings:
 
-For another provider, use the same compiled build/migrate/start commands, private stores and readiness endpoint. Proxies must forward WebSocket upgrades for `/socket.io/`, preserve Origin, and allow idle connections longer than the 45-second heartbeat window (at least 75 seconds). Set `TRUST_PROXY_HOPS` to the actual trusted proxy path. Public datastore connections require provider-supported TLS with certificate verification: `rediss://` for Redis and verified PostgreSQL SSL/CA settings. Never disable certificate verification to make a remote store connect.
-
-## Migrations and rollback
-
-The release command `npm run db:migrate:production` runs compiled JavaScript, applies SQL in a transaction and serializes concurrent runners with a PostgreSQL advisory lock. Repeats are no-ops; checksums reject edited historical migrations. Failures roll back and exit nonzero. Startup separately validates migrations and refuses to listen if the schema is missing or outdated.
-
-Migrate **before** moving traffic. `/api/ready` is the deployment health check, not merely an open port. [Render health-check behavior](https://render.com/docs/health-checks).
-
-Future migrations must remain compatible with old/new code during rollout. Add new files; do not edit existing migrations or automatically run destructive down-migrations. Maintain PostgreSQL backups and rehearse restores. Rollback selects the prior frontend/backend release while retaining compatible schema changes. Reverting code does not revert data; incompatible changes need an explicit recovery plan.
-
-Redis is required runtime state. Keep persistence and `noeviction`, and monitor memory. Memory exhaustion must surface as failed operations rather than silent data eviction. Full Redis data loss can lose recent pending accounting plus temporary chat/timers/presence; PostgreSQL retains committed rooms/tasks/history. Test restores in isolated environments.
-
-## Socket.IO and lifecycle
-
-Production uses **WebSocket-only** transport on client/server, avoiding polling session-affinity requirements. Redis Pub/Sub fans out events; reconnect performs `room:join` and reloads snapshots. This adapter does not provide Socket.IO packet replay/connection-state recovery. [Multi-node guidance](https://socket.io/docs/v4/using-multiple-nodes/), [Redis adapter](https://socket.io/docs/v4/redis-adapter/).
-
-HTTP and WebSocket handshakes enforce exact allowed origins. Statistics preflight permits Authorization; no cookies or credentialed CORS are used. Requests without Origin are allowed for probes/non-browser clients. CORS is not authentication: guest identities and room IDs do not create private accounts/rooms. Socket payloads are bounded at 16 KiB and per-socket queues are bounded. Existing per-guest event limits remain; comprehensive abuse protection is outside V1.
-
-SIGTERM/SIGINT marks readiness unavailable and refuses new work, closes socket **transports** to trigger automatic retry, drains accepted mutations/disconnect cleanup/background accounting, then closes Redis and PostgreSQL. The process has a 25-second deadline inside the host's 30-second grace. Unfinished stored accounting and leases support recovery. A namespace disconnect would suppress automatic client retries and is intentionally not used for deployment drain.
-
-Clients retry with backoff and reconcile room snapshots. Mutations are not indiscriminately replayed; existing task creation request IDs deduplicate retries. Voice disables tracks while offline and rebuilds peers after rejoin. One minute offline stops the microphone; refresh always requires a new explicit join.
-
-## Health and logs
-
-| Endpoint / event | Meaning |
+| Setting | Value |
 | --- | --- |
-| `/api/health` | HTTP process alive, even during datastore failure |
-| `/api/ready` | Bounded PostgreSQL query plus PINGs on Redis command/publisher/subscriber; 503 on failure or drain |
-| `database.migrations_complete` | Applied count; zero means current |
-| `server.listening` | Dependencies/migrations verified before opening listener |
-| `redis.unavailable` / `redis.ready` | Required connection loss/recovery |
-| `runtime.checkpoint_failed` | Accounting retained for retry; investigate stores |
-| `server.shutdown_started` / `server.shutdown_complete` | Drain lifecycle |
-| `server.shutdown_timeout` | Deadline forced exit |
-| `http.request` | Generated request ID, method, route pattern, status, duration |
+| Root Directory | repository root (`.` / leave blank) |
+| Framework Preset | Vite |
+| Install Command | `npm ci --include=dev` |
+| Build Command | `npm run build:vercel` |
+| Output Directory | `client/dist` |
+| Node version | 24.x, pinned by `.node-version` and root `package.json` |
 
-Logs are newline-delimited JSON on stdout/stderr in production; `LOG_LEVEL=info` is the initial setting. Successful health probes are omitted from request logs. Credentials, headers, bodies, query strings, media payloads and raw Error objects are excluded. Monitor readiness, error rates, forced shutdowns, database connections and Redis memory. A PING proves connectivity, not backup durability or available write capacity.
+Do not set the Root Directory to `client`. The frontend imports TypeScript contracts from `shared/`, and Vercel does not allow a project to access files above its configured root. Root `vercel.json` records the commands, output path, security headers, and the SPA rewrite needed for `/r/*`, `/room/*`, and `/join` deep links. The Vercel build fails before compiling if `VITE_SERVER_URL` is missing, insecure, local, or not an exact origin.
 
-## HTTPS microphone and TURN
+Manually enter this Vercel environment variable for Production:
 
-The local smoke test serves the built app on a non-loopback-named HTTPS test origin and connects to production Node processes over WSS. It uses a **generated synthetic microphone tone**: no physical microphone is captured or recorded. Checks include secure-context APIs, no capture before Join Voice, decoded audio energy both ways, reconnect without reacquiring media, and refresh without capture. Only local test mode accepts its temporary certificate; remote mode requires valid certificates. [Secure-context requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+| Variable | Required | Value |
+| --- | --- | --- |
+| `VITE_SERVER_URL` | Yes | Exact Render backend HTTPS origin, with no trailing slash, path, query, or credentials |
+| `VITE_ICE_SERVERS` | No | Public JSON ICE server array; leave unset for the current public STUN default |
 
-**TURN is not provisioned.** Public STUN cannot guarantee audio through symmetric/restrictive NATs or networks blocking peer traffic. HTTPS/WSS does not solve media traversal. The six-guest mesh and local audio pass do not establish physical-device quality or cross-network reachability. Wider production voice reliability needs a TURN relay and server-issued expiring credentials. `VITE_ICE_SERVERS` is public build-time configuration, unsuitable for permanent secrets or rotating credentials. That work remains outside this milestone.
+`VITE_SERVER_URL` is intentionally public browser configuration. It supplies the same base origin to HTTP statistics requests and Socket.IO. Changing any `VITE_*` variable requires a new frontend deployment. Do not add `DATABASE_URL`, `REDIS_URL`, or private credentials to Vercel.
 
-## Hosted acceptance — pending deployment
+## Render backend and managed stores
 
-- Valid HTTPS certificates and HTTP-to-HTTPS redirects on both origins. Direct/refresh navigation to `/r/<room>`, `/room/<room>` and `/join` succeeds.
-- Private datastores have intended persistence/backups. Release logs show successful migrations/dependencies; a repeat migration changes nothing.
-- `/api/ready` is 200; unlisted HTTP/WSS origins fail; statistics preflight succeeds.
-- Independent profiles see matching presence/tasks/timer/chat; Developer Tools shows WSS without mixed content.
-- Run synthetic verification below (creates a unique room, two guests, a task and chat message; use staging first):
+Import root `render.yaml` as a Render Blueprint. It contains only:
+
+- `constellate-api`: Node web service
+- `constellate-postgres`: managed PostgreSQL
+- `constellate-redis`: managed Key Value/Redis
+
+There is no Render frontend/static service. The stores have no public IP allowlist. Redis uses persistence and `noeviction`, because evicting live state or pending study accounting is unsafe. The blueprint uses Singapore and a paid always-on baseline; review current pricing and choose another region/plan before creation if needed.
+
+The only value the Blueprint prompts you to enter manually is:
+
+| Variable | Required | Value |
+| --- | --- | --- |
+| `CLIENT_ORIGINS` | Yes | Exact Vercel production origin, e.g. `https://your-project.vercel.app`; comma-separate additional exact HTTPS origins if needed |
+
+Do not use a wildcard or trailing slash. Production rejects HTTP, localhost, paths, credentials, and wildcard origins. Express CORS and Socket.IO handshakes use this same allowlist. Preview deployments have unique origins; add a specific preview origin deliberately or use only the stable Production domain.
+
+The Blueprint supplies these backend values; do not enter them manually when using it:
+
+| Variable | Source |
+| --- | --- |
+| `DATABASE_URL` | Render PostgreSQL private `connectionString` via `fromDatabase` |
+| `REDIS_URL` | Render Key Value private `connectionString` via `fromService` |
+| `REDIS_KEY_PREFIX` | Blueprint value `constellate:production` |
+| `NODE_ENV`, `NODE_VERSION`, `HOST` | Blueprint production/runtime values |
+| `TRUST_PROXY_HOPS`, `LOG_LEVEL`, `HEALTH_TIMEOUT_MS`, `SHUTDOWN_TIMEOUT_MS` | Blueprint hardening values |
+| `PORT` | Render platform injects it at runtime; do not set it |
+
+If you create the web service and stores manually instead of importing the Blueprint, enter all of the above values yourself, using the stores' private connection strings. Never copy `server/.env` to Render. Production ignores local `.env` files.
+
+## Database migrations
+
+Render runs the exact migration command as a pre-deploy command after compiling the server:
+
+```sh
+npm run db:migrate:production
+```
+
+The command uses `DATABASE_URL`, applies only unapplied SQL migrations, and records checksums in `schema_migrations`. It runs in a transaction and uses a PostgreSQL advisory lock, so concurrent runners serialize. It never drops or recreates production tables. Editing an applied migration is rejected; add a new migration instead.
+
+If you need to run it manually after the database exists, use the Render backend Shell with the same command. Startup independently verifies the schema and refuses to listen if a migration is missing or changed.
+
+## Health, HTTPS, and Socket.IO
+
+Render uses:
+
+```text
+GET /api/health
+```
+
+A healthy response is HTTP 200:
+
+```json
+{"status":"ok","server":"ok","database":"ok","redis":"ok"}
+```
+
+Dependency failure or shutdown drain returns HTTP 503 with component status values. No hostnames, database names, usernames, passwords, URLs, or credentials appear in the response. `/api/ready` is a compatible alias.
+
+Render terminates HTTPS/WSS and forwards to the Node HTTP listener. The client passes the Render `https://` origin to Socket.IO; Socket.IO creates `wss://` connections without a hardcoded WebSocket URL. Production uses WebSocket-only transport, avoiding polling session-affinity requirements. Local development remains unchanged: the empty `VITE_SERVER_URL` uses the page origin, and Vite proxies `/api` and `/socket.io` to the local backend.
+
+The Redis adapter uses the three clients created from `REDIS_URL` for commands, publishing, and subscriptions. It coordinates live room state and cross-node events. Reconnect performs a fresh room join and reloads authoritative snapshots; the Pub/Sub adapter does not replay missed packets.
+
+On SIGTERM/SIGINT the backend marks health unavailable, refuses new work, closes transports so clients retry, drains accepted mutations and accounting, then closes Redis and PostgreSQL. The 25-second application deadline fits inside Render's 30-second shutdown grace.
+
+## Exact deployment order
+
+1. Review the diff and run all checks listed below. Do not use production database credentials locally.
+2. Commit and push the deployment-ready branch to GitHub when you are ready.
+3. Create/import the Vercel project from the repository, with Root Directory left at the repository root. Note its stable Production origin. The first deployment can wait until `VITE_SERVER_URL` is known.
+4. Import `render.yaml` into Render. Confirm it proposes one Node web service, one PostgreSQL database, and one Key Value/Redis service—no static frontend.
+5. Enter `CLIENT_ORIGINS` using the exact Vercel Production origin. Create the Blueprint resources.
+6. Render builds the server and automatically runs `npm run db:migrate:production` before starting it. Confirm the migration log and successful backend deployment.
+7. Open `https://<render-backend>/api/health` and confirm HTTP 200 with all four fields `ok`.
+8. In Vercel, set Production `VITE_SERVER_URL` to the exact Render backend HTTPS origin. Leave `VITE_ICE_SERVERS` unset unless configuring a reviewed ICE list.
+9. Deploy the single Vercel frontend. Open a deep room link directly and confirm it loads.
+10. Confirm the browser's actual production origin exactly matches Render `CLIENT_ORIGINS`. If Vercel assigned a different alias/custom domain, update `CLIENT_ORIGINS` and redeploy only the Render backend.
+11. Run the hosted verification and the manual production checklist below.
+
+This order resolves the origin dependency without deploying a second frontend. If you already know the final Vercel custom domain, you can enter it in Render before the Vercel deployment.
+
+## Verification commands
+
+Run before committing:
 
 ```powershell
-$env:FRONTEND_URL = 'https://YOUR-FRONTEND'
-$env:BACKEND_URL = 'https://YOUR-BACKEND'
+npm.cmd test
+npm.cmd run test:db
+npm.cmd run test:redis
+npm.cmd run build
+npm.cmd run test:production
+```
+
+The database/Redis/production suites require the project-local test services and a separate `TEST_DATABASE_URL`. The production suite builds the app, runs compiled migrations, serves separate HTTPS frontend/API origins, connects browsers across two Node processes, verifies CORS/WSS, checks synthetic WebRTC audio, performs graceful failover, and confirms the exact timer deadline and presence survive reconnect.
+
+After deployment, set only public deployment origins locally and run:
+
+```powershell
+$env:FRONTEND_URL = 'https://YOUR-VERCEL-PRODUCTION-ORIGIN'
+$env:BACKEND_URL = 'https://YOUR-RENDER-BACKEND-ORIGIN'
 npm.cmd run deploy:verify
 ```
 
-- On real devices with headphones, explicitly permit microphones; verify bidirectional voice, mute/unmute and leave cleanup. Repeat across networks and record restrictive-network failures under the TURN limitation.
-- Redeploy/restart the backend with guests connected. Confirm shutdown completion, automatic recovery, no duplicate guests, preserved timer deadline/tasks and restored voice without a second microphone prompt. Remote smoke does not restart hosting or inspect migration tables.
-- In staging, interrupt Redis/PostgreSQL and verify readiness 503, rejected unsafe operations and recovery after restoration. Do not simulate outages against active production users without a maintenance plan.
-- Record release commit, URLs, migration logs, smoke report and physical-device/network results. `.vite/production-report.json` records each local/remote run; local success is not hosted acceptance.
+The remote check creates a unique room, two guests, a task, and a chat message. Use staging first if that data is undesirable in production. It verifies real certificates but does not restart Render or inspect production migration tables.
+
+## Manual production checklist
+
+- Direct navigation and refresh work for `/`, `/join`, `/r/<room>`, and `/room/<room>` on Vercel.
+- Browser requests contain no `localhost`, `127.0.0.1`, `http://`, mixed content, or calls to Vercel `/api`; API requests go to Render HTTPS.
+- Socket.IO connects to the Render domain with WSS and `transport=websocket`.
+- An unlisted Origin fails both HTTP CORS and the Socket.IO handshake. The Vercel production origin succeeds.
+- Two independent browser profiles share presence, tasks, chat, reactions, and one timer deadline.
+- A Render redeploy causes automatic reconnect without duplicate guests or reset timers/tasks. Logs contain `server.shutdown_complete`.
+- `/api/health` becomes 503 during dependency loss and returns to 200 after recovery. Test deliberate outages only in staging.
+- Joining voice explicitly prompts for the microphone; audio works in both directions, mute/unmute works, and leaving stops tracks.
+- Test voice on two physical devices and on different networks. Record networks that need TURN.
+- Render logs show structured JSON and no connection strings, authorization headers, message bodies, SDP, or ICE candidates.
+
+## Remaining limitations
+
+TURN is not provisioned. Public STUN cannot guarantee WebRTC audio through symmetric/restrictive NATs, corporate networks, or some mobile carriers. HTTPS/WSS enables microphone permission and signaling but does not solve media traversal. A future TURN service must issue short-lived credentials; permanent TURN secrets do not belong in `VITE_ICE_SERVERS`.
+
+Rooms use anonymous guest identities and guessable room IDs, not authenticated private membership. CORS protects browser origins but is not authorization. Production capacity is not load-tested, and the current Blueprint declares one backend instance even though Redis supports cross-node coordination. Physical microphone quality, Safari/Firefox/mobile behavior, custom-domain DNS, backups/restores, and hosted outage recovery remain manual operational checks.

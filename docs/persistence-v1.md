@@ -91,7 +91,7 @@ No socket IDs, online/offline flags, desks or connection records are stored. Tas
 
 `server/src/db/pool.ts` creates one `pg.Pool` per backend: maximum 10 connections, a 5-second connection timeout, a 30-second idle timeout and a 10-second statement timeout. Repositories reuse this pool. Each transaction releases its connection in `finally`; failures roll back. Idle pool errors and operation failures log a safe error code without credentials. Shutdown closes app connections and drains the pool. Startup fails with a useful message when the database or migrations are unavailable.
 
-`GET /api/health` checks the HTTP server. `GET /api/ready` queries PostgreSQL, returning 200 with `{"status":"ok"}` or 503 if the database is unavailable. Both work through Vite at `http://localhost:5173/api/...`.
+`GET /api/health` reports server, PostgreSQL, and Redis status and returns 200 only when all are ready; `/api/ready` is a compatible alias. Both work through Vite at `http://localhost:5173/api/...` during local development.
 
 Joining first loads or creates the room and its ordered tasks in PostgreSQL. The default name remains **Late night grind**. A new room starts with no saved tasks; old mock task arrays and unsaved browser-local edits have no durable data to migrate. Successful joins then establish ephemeral presence and receive room, timer and chat snapshots. A join generation check prevents a slow query from restoring membership after a leave, disconnect or room switch.
 

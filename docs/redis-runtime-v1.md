@@ -65,7 +65,7 @@ Empty rooms retain ephemeral state for approximately **one hour** after the fina
 
 Corrupt JSON/schema fails closed with a repair log; pending accounting is not silently overwritten. Redis outage marks readiness unavailable, rejects room operations and closes local transports so the existing client reconnect path runs. There is no competing memory fallback. On recovery, ioredis resubscribes and the room reloads shared state. PostgreSQL outage prevents authoritative durable operations; pending accounting remains queued for retry.
 
-`GET /api/health` is HTTP liveness (200). `GET /api/ready` checks PostgreSQL and all Redis connections and returns 200 or 503 with `status`, `database` and `redis`; it reveals no credentials.
+`GET /api/health` checks the server, PostgreSQL and all Redis connections and returns 200 or 503 with `status`, `server`, `database` and `redis`; it reveals no credentials. `GET /api/ready` is a compatible alias.
 
 Redis itself remains a dependency. Node-restart continuity assumes Redis kept its data. The portable development service saves an RDB snapshot after 60 seconds with changes and on clean `redis:stop`. A Redis crash/data loss can lose state and accounting newer than its snapshot; this V1 does not claim cross-database exactly-once durability through total Redis loss. Production needs deliberate Redis persistence, memory/eviction policy, monitoring and availability planning. Redis Cluster is not supported by the two-key Lua layout in this V1; use one Redis endpoint compatible with these operations.
 

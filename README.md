@@ -1,15 +1,37 @@
 # Constellate
 
-A cozy collaborative study room built with React, TypeScript, Vite, Express and Socket.IO. Rooms include persistent guest identity, presence/statuses, a shared Pomodoro, chat, live reactions, shared tasks and study statistics. **Voice V1** adds optional, audio-only WebRTC in the existing Members panel.
+A collaborative study room built with React, TypeScript, Express, Socket.IO, PostgreSQL and Redis. It includes guest presence, a shared Pomodoro timer, chat, reactions, persistent tasks, study statistics and optional audio-only WebRTC. Production Hardening V1 preserves the existing UI and features.
 
-PostgreSQL owns durable rooms/tasks/history. Redis owns shared live room state and carries Socket.IO events between backend instances. WebRTC carries voice between browsers; Socket.IO only carries signaling. No camera, recording, media upload, SFU or paid voice service is included.
+## Architecture
 
-## Start locally
+```mermaid
+flowchart LR
+  Browser[React browser app] -->|HTTPS assets| CDN[Static frontend host]
+  Browser -->|HTTPS API and WSS signaling| Node[Node / Express / Socket.IO]
+  Node -->|durable rooms, tasks, history| PG[(PostgreSQL)]
+  Node -->|live state, leases, Pub/Sub| Redis[(Redis)]
+  Browser <-->|WebRTC audio| Peer[Other browsers]
+```
 
-From the repository root on Windows PowerShell, first-time setup is:
+| Directory | Responsibility |
+| --- | --- |
+| `client/` | React UI, one socket per tab, room recovery and WebRTC peers |
+| `server/` | Statistics/health HTTP, validation, Socket.IO signaling, persistence and accounting |
+| `shared/` | TypeScript event/data contracts; no runtime secrets |
+| `server/db/migrations/` | Ordered SQL migrations with checksums, transactions and an advisory lock |
+| `vercel.json` | The single Vercel frontend build, SPA deep-link routing and response headers |
+| `render.yaml` | Backend service, private PostgreSQL/Redis, release migrations and readiness |
+
+PostgreSQL owns durable rooms, tasks and study history. Redis owns presence, timers, capped chat/reactions, voice membership, statistics access tokens and pending accounting; its Socket.IO adapter broadcasts between backend instances. Audio goes directly between browsers. There is no camera, recording, media upload or SFU.
+
+Guest identities live in localStorage and are anonymous, not authenticated accounts. Same-origin tabs share one logical guest. CORS and room links are not authentication: anyone who knows a room ID can join. Use independent browser profiles for separate guests.
+
+## Local setup
+
+Use Node **24.16.0** (also in `.node-version`) and npm. From the repository root in Windows PowerShell:
 
 ```powershell
-npm.cmd install
+npm.cmd ci
 npm.cmd run db:setup
 npm.cmd run redis:setup
 npm.cmd run db:start
@@ -18,88 +40,77 @@ npm.cmd run db:migrate
 npm.cmd run dev
 ```
 
-For this workspace, the project-local services and ignored `server/.env` are already configured. Subsequent starts require:
+Open **http://localhost:5173/r/demo**. The helpers create ignored credentials/data under `server/.env` and `server/.local/`. Do not overwrite an existing `.env`. The Redis helper uses a pinned, checksum-verified portable Windows build without changing services, PATH or firewall settings.
 
-```powershell
-npm.cmd run db:start
-npm.cmd run redis:start
-npm.cmd run db:migrate
-npm.cmd run dev
-```
+On later starts, run `db:start`, `redis:start`, `db:migrate`, then `dev`. Root `npm run dev` checks ports, configuration and dependencies before starting both processes; Vite waits for backend readiness. Stop the app with Ctrl+C, then optionally `npm run redis:stop` and `npm run db:stop`. Use `npm` instead of `npm.cmd` outside PowerShell.
 
-Open **http://localhost:5173/r/demo**. Vite uses **5173**, Express/Socket.IO **3000**, PostgreSQL **5432**, and Redis **6379**. Once PostgreSQL and Redis are running and migrations are current, **`npm run dev` is the single command for both app processes**. It first checks ports, proxy configuration and dependencies, then uses `concurrently`; Vite starts only after the backend reports PostgreSQL and Redis ready. A failure reports the actual dependency and exits before starting the frontend. It never starts a second backend on an occupied port. Use `npm` instead of `npm.cmd` in shells where appropriate. The Windows Redis helper downloads a pinned, checksum-verified community portable build into ignored `server/.local/redis`; it makes no service, PATH or firewall changes. See the [Redis guide](docs/redis-runtime-v1.md) for other operating systems and external services.
+On macOS/Linux, run PostgreSQL and Redis using your package manager or containers. Copy `server/.env.example` only if no `.env` exists; set `DATABASE_URL`, a **separate** `TEST_DATABASE_URL`, and `REDIS_URL`. Then run `npm ci`, `npm run db:migrate`, and `npm run dev`. No client `.env` is required locally.
 
-`cd client; npm run dev` still does not start the backend. Its new predev check waits up to 20 seconds for backend readiness and exits with instructions if none is available. Previously, this command could leave Vite proxying to an absent backend. The old root command also started Vite before backend dependency checks completed; `tsx watch` could remain alive after its backend child failed, leaving Vite running with no port 3000 listener. Redis is now a required startup dependency in addition to PostgreSQL; Voice itself did not change the backend port. See [startup diagnosis and verification](docs/local-development.md).
+Development ports: Vite **5173**, Node **3000**, PostgreSQL **5432**, Redis **6379**. Vite proxies `/api` and `/socket.io`, including WebSocket upgrades. Separate terminals remain supported through `dev:server` and `dev:client`. See [local troubleshooting](docs/local-development.md).
 
-Stop older standalone client/backend terminals with Ctrl+C before using root `npm run dev`. The preflight refuses occupied app ports and does not kill or adopt existing processes. Separate app terminals remain supported: start `npm.cmd run dev:server`, wait for the listening message, then `npm.cmd run dev:client`. In the combined root terminal, Enter restarts the existing backend watcher; Ctrl+C stops both app processes. If startup failed, fix the dependency and rerun the root command.
+## Configuration
 
-Stop the app with Ctrl+C, then optionally stop the services without deleting data:
-
-```powershell
-npm.cmd run redis:stop
-npm.cmd run db:stop
-```
-
-Keep `server/.env` and `server/.local/`; they contain local credentials/data. Do not overwrite an existing environment file with an example.
-
-## Configuration and connection checks
-
-| Setting | Purpose |
+| Variable | Where / purpose |
 | --- | --- |
-| `server/.env: PORT=3000` | One backend port read by both the server and Vite proxy. Inherited process variables take precedence. |
-| `DATABASE_URL` | Required PostgreSQL connection string; generated by `db:setup`. |
-| `TEST_DATABASE_URL` | Separate test database; generated by `db:setup`. |
-| `REDIS_URL=redis://127.0.0.1:6379` | Required server-only runtime connection; added by `redis:setup`. |
-| `REDIS_KEY_PREFIX=constellate` | Optional namespace; all nodes serving one database/schema must share it. Different deployments/tests must not. |
-| `CLIENT_ORIGINS` | Exact allowed origins for HTTP CORS and Socket.IO handshakes; defaults to `http://localhost:5173,http://127.0.0.1:5173`. Set actual frontend origins in production. |
-| `client/.env: VITE_SERVER_URL` | Leave blank for same-origin Socket.IO/API. Only override for a separate deployed backend. |
-| `SERVER_PROXY_TARGET` | Leave blank so Vite follows backend `PORT`. Only override for a backend on another host. |
-| `VITE_ICE_SERVERS` | Optional JSON ICE server array. Defaults to public Google STUN; supports TURN configuration. See the [voice guide](docs/voice-v1.md#ice-configuration-and-limitations). |
+| `NODE_ENV` | Server: `production` enables strict origin validation and JSON logging; ignores local `.env` |
+| `PORT`, `HOST` | Server listen address; defaults `3000`, `0.0.0.0`; deployment uses the host-assigned port |
+| `DATABASE_URL` | Required server-only PostgreSQL URL |
+| `REDIS_URL` | Required server-only `redis://` private-network or `rediss://` TLS URL |
+| `REDIS_KEY_PREFIX` | Shared namespace for nodes serving one database; isolate staging/tests |
+| `CLIENT_ORIGINS` | Exact comma-separated origins, no slash/paths/wildcards; required HTTPS origins in production |
+| `TRUST_PROXY_HOPS` | Trusted proxy count: `0` locally, `1` in the Render configuration |
+| `LOG_LEVEL` | `debug`, `info` (default), `warn`, `error` |
+| `HEALTH_TIMEOUT_MS` | Readiness deadline; default `2000` |
+| `SHUTDOWN_TIMEOUT_MS` | Drain deadline; default `25000`, shorter than the host's termination grace |
+| `VITE_SERVER_URL` | Public build-time HTTPS backend origin for **both** HTTP statistics and Socket.IO; blank locally or behind a same-origin production proxy |
+| `VITE_ICE_SERVERS` | Public JSON ICE array; blank uses Google STUN, `[]` enables host-only local tests |
+| `SERVER_PROXY_TARGET` | Development-only override; normally blank so Vite follows backend `PORT` |
+| `TEST_DATABASE_URL` | Local/CI tests only; never production |
 
-No client or root `.env` is required. Restart dev processes after environment changes; `VITE_*` values are public browser configuration, never a place for private long-lived credentials.
+Rebuild the frontend after changing `VITE_*` values. They are visible to anyone downloading the app. Never put private credentials in them. Production builds do not read backend `.env` configuration or include Vite's development proxy.
 
-Vite forwards both `/api` and `/socket.io` to `http://127.0.0.1:<PORT>` and enables `ws: true`. The browser uses the existing single Socket.IO client per tab. The proxy preserves Origin; production CORS is an explicit allowlist rather than a wildcard. Static production hosting must supply its own HTTP/WebSocket reverse proxy; Vite's dev proxy is not part of the build output.
+## Production deployment
 
-- `http://localhost:5173/api/health`: HTTP liveness, `{ "status": "ok" }`.
-- `http://localhost:5173/api/ready`: PostgreSQL and Redis readiness, `{ "status": "ok", "database": "ok", "redis": "ok" }`, or HTTP 503 if a dependency is unavailable.
-- The same endpoints work directly at `http://127.0.0.1:3000`.
+See the [production runbook](docs/production-v1.md) for the Vercel frontend + Render backend deployment, environment setup, HTTPS/WSS, migrations, monitoring, rollback and acceptance checks. **Deployment files are prepared; hosted resources have not been provisioned in this session.**
 
-Successful startup prints `[dev] Preflight passed`, `Server running at http://127.0.0.1:3000`, then `[dev] Backend, PostgreSQL and Redis are ready. Starting Vite.` In the browser, the development console shows `[Constellate] connected` and `joined room`, and the Socket.IO polling request upgrades to a WebSocket (HTTP 101). Members populate and update across independent browser profiles. If you intentionally stop the backend while Vite remains running, proxy refusal messages are expected and remain visible; they stop after recovery. This workflow does not filter or suppress Vite errors.
+```sh
+npm ci --include=dev
+npm run build
+# After injecting production server environment variables:
+npm run db:migrate:production
+npm start
+```
 
-## Room behavior
+Production runs compiled Node code. Socket.IO uses WebSocket-only transport and the Redis adapter, so load-balancer session affinity is unnecessary. Each reconnect rejoins the room and reloads authoritative snapshots. Hosts must support long-lived WebSocket upgrades and frontend SPA fallback for `/r/*`, `/room/*` and `/join`.
 
-- `/r/<roomId>` and the legacy `/room/<roomId>` join the same room. Invite links preserve that ID. `/` restores the saved room, and `/join` shows the room chooser. Explicit Leave clears the active room but keeps the guest profile/status preferences.
-- `constellate_user_id` and the existing profile live in localStorage. Regular tabs at the same origin share one logical guest/desk. Use a private window or another browser profile for a second guest. These are anonymous identities, not authenticated accounts.
-- Redis tracks each guest's sockets across nodes. Losing one tab does not remove another. Normal disconnect retains the desk/visit for a 15-second grace period. Process crashes use renewable 45-second socket leases; dead leases are swept every five seconds. Three desks are stable; overflow members remain in Members and take a freed desk.
-- Statuses, capped chat history (100 messages) and recent reactions (three) are shared across nodes and isolated by room. Chat/reaction rate limits are per guest across their tabs. History is temporary Redis state, not permanent chat storage.
-- Shared tasks and room names commit to PostgreSQL before broadcasting. Saved task IDs/completion and revision protection survive reconnects. Room IDs accept 1–64 letters, digits, underscores or hyphens, starting with a letter/digit.
-- The server owns 25-minute Focus / five-minute Break timers. Pause/resume/reset and concurrent starts are atomic across nodes. Deadlines survive Node restarts while Redis remains available. Elapsed downtime is accounted for; finished phases normalize once. Break/focus phases wait for Start rather than automatically chaining. There are no per-second server timer writes/broadcasts.
-- Study visits and deduplicated focus/Pomodoro/task contributions remain in PostgreSQL. Redis coordinates active visits and pending accounting; events checkpoint on meaningful changes and once per minute. Multiple tabs/reconnect within grace keep one visit. Stats HTTP access is scoped to a currently joined guest/room and works across nodes.
-- Empty room runtime is retained for about one hour (a running timer is allowed to finish). Uncommitted study accounting prevents expiry until safely written. Saved rooms/tasks/history remain after ephemeral cleanup.
+- `GET /api/health`: Render health check, reporting `server`, `database` and `redis` without credentials; HTTP 503 on dependency failure or draining.
+- `GET /api/ready`: compatible alias of `/api/health`.
+- Startup refuses missing/changed migrations or unavailable dependencies. Health responses are not cached.
+- SIGTERM/SIGINT stops new work, closes transports so clients retry, drains accepted work/accounting, then closes Redis/PostgreSQL. A deadline bounds shutdown.
+- Production logs are JSON with timestamps, levels and event names. HTTP logs use generated request IDs and route patterns. Credentials, bodies, authorization headers, query strings and WebRTC payloads are excluded.
 
-## Optional voice
+## Recovery and voice
 
-Click **Join Voice** in Members to request the default microphone. Normal room use and refresh never request media. Voice supports up to six guests in a small mesh, with one active voice tab per guest/room. Mute toggles the audio track without renegotiating. Leave Voice stops the microphone and peers while keeping the study room open; Leave Room also cleans voice.
+Guest desks survive short disconnects with a 15-second grace period. Crashed sockets use 45-second leases with periodic cleanup. Timer deadlines survive Node restarts in Redis; rooms/tasks/history survive in PostgreSQL. Shared chat is capped at 100 messages and is temporary. See the [Redis runtime guide](docs/redis-runtime-v1.md).
 
-Temporary Socket.IO disconnect closes peers and disables microphone tracks. After the room reconnects, the still-usable local stream can restore voice without another permission request. After one minute offline, it is stopped. Refresh always requires an explicit new Join Voice. Peer/network failures get bounded retries and a clear error. If playback is blocked, click **Enable audio**.
+Voice is opt-in through **Join Voice**, limited to six guests in a mesh and one voice tab per guest/room. Mute disables the audio track; leaving stops microphone/peers. Signaling loss disables tracks and closes peers. Reconnect can reuse the stream; one minute offline stops it. Refresh requires a new explicit join.
 
-Microphones require localhost or HTTPS. Public STUN does not guarantee connectivity on restrictive networks; production reliability will require TURN. No TURN server is deployed here. The [Voice V1 guide](docs/voice-v1.md) explains negotiation, events, cleanup, file changes, limitations and the exact manual browser checklist.
+**Microphones require HTTPS or localhost. TURN is not provisioned.** STUN-only audio can fail on restrictive NATs, corporate networks and mobile carriers even when chat/reconnect work. A production TURN service with short-lived credentials remains a known follow-up. Permanent TURN secrets must not be embedded in the Vite bundle. See [Voice V1](docs/voice-v1.md).
 
-## Checks and multi-server testing
+## Verification
 
 ```powershell
 npm.cmd test
 npm.cmd run test:db
 npm.cmd run test:redis
 npm.cmd exec -- playwright install chromium
-npm.cmd run test:browser
-npm.cmd run build
+npm.cmd run test:production
 ```
 
-With both app ports free (services still running), `npm.cmd run test:dev` additionally exercises the actual root `npm run dev` workflow and all eight startup/reconnect scenarios. It checks unavailable dependencies, duplicate startup prevention, two isolated browser identities, chat/reactions/tasks, the shared timer, voice signaling, an intentional backend stop and recovery through the same watcher. It uses disposable test data and leaves no app processes running afterward. Its report/log are in `.vite/dev-startup-report.json` and `.vite/dev-startup.log`.
+Unit tests require no services. Integration suites use disposable schemas in `TEST_DATABASE_URL` and unique Redis namespaces. `test:production` builds React, serves separate HTTPS frontend/API origins, starts two actual production Node processes, and verifies compiled migrations, CORS/WSS, statistics, synthetic WebRTC audio, graceful shutdown and reconnect. OpenSSL is required for the temporary test certificate; set `OPENSSL_BIN` if needed (Git for Windows is detected). The report is `.vite/production-report.json`.
 
-`npm test` covers ordinary regressions without services. Database/Redis/browser suites require the running services and `TEST_DATABASE_URL`; they create and remove only disposable schemas and unique Redis namespaces. `test:redis` also restarts a separate test-owned Redis executable when available. `test:browser` starts two actual Node instances and two Vite proxies, uses isolated Chromium storage contexts and generated synthetic audio, and checks actual received audio energy. It never captures or records your physical microphone. Reports/screenshots are ignored under `.vite/`. No lint script is configured; both builds run TypeScript checks.
+After deployment, `npm run deploy:verify` targets `FRONTEND_URL` and `BACKEND_URL`. It creates a uniquely named test room; use staging first. It verifies remote certificates and never restarts hosted services. Hosted redeploys, physical devices, permission prompts, Safari/Firefox/mobile and restrictive networks still require the runbook's manual checks.
 
-Real microphone/speaker quality, browser permission prompts, Safari/Firefox/mobile browser behavior and restrictive-network TURN connectivity still require manual testing. Automated audio stats are evidence of decoded synthetic media, not a claim that physical devices were heard.
+Existing `test:browser` covers extended voice behavior through dev proxies. `test:dev` checks local startup with app ports free. CI runs unit, database, Redis and production HTTPS checks. No lint script is configured; builds include TypeScript checks.
 
-See [two-backend commands and Redis failure tests](docs/redis-runtime-v1.md#two-backend-development-test). No load balancer or deployment infrastructure was added. The original [persistence](docs/persistence-v1.md), [guest recovery](docs/guest-recovery-v1.md), and [study stats](docs/study-stats-v1.md) guides preserve earlier schema/UI details; the Redis/voice guides supersede their old process-memory/restart descriptions.
+Further details: [persistence](docs/persistence-v1.md), [guest recovery](docs/guest-recovery-v1.md), [study statistics](docs/study-stats-v1.md), [Redis](docs/redis-runtime-v1.md), [voice](docs/voice-v1.md), [production](docs/production-v1.md).

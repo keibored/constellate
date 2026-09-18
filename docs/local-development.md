@@ -42,7 +42,7 @@ Use Ctrl+C in old standalone app terminals before starting the combined workflow
 ## Successful connection signals
 
 1. The root terminal prints `[dev] Preflight passed`, the backend listening message on 3000, and only then `Backend, PostgreSQL and Redis are ready. Starting Vite.` The backend also logs its PID to identify the actual listener.
-2. Open `http://localhost:5173/api/ready`. It returns HTTP 200 and `{"status":"ok","database":"ok","redis":"ok"}` through the same proxy as the application.
+2. Open `http://localhost:5173/api/health`. It returns HTTP 200 and `{"status":"ok","server":"ok","database":"ok","redis":"ok"}` through the same proxy as the application. `/api/ready` is an alias.
 3. Open `http://localhost:5173/r/demo`. The development browser console shows `[Constellate] connected` and `joined room`. Network shows successful Socket.IO polling and a WebSocket upgrade (101).
 4. A separate private/profile window shows another guest. Chat, reactions, tasks and the shared timer update in both windows. Two regular tabs intentionally share one guest identity.
 
