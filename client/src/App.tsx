@@ -3,6 +3,8 @@ import { RoomLobby } from './features/room/RoomLobby';
 
 function App() {
   const path = window.location.pathname.replace(/\/$/, '') || '/';
+  const queryRoomId = new URLSearchParams(window.location.search).get('room');
+  if (queryRoomId && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(queryRoomId)) return <RoomPage key={queryRoomId} roomId={queryRoomId} />;
   if (path === '/' || path === '/join') return <RoomLobby />;
   const roomId = /^\/(?:r|room)\/([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})$/.exec(path)?.[1];
   if (!roomId) {
