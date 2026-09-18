@@ -40,7 +40,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
     setLeaving(true);
     await voice.leave();
     await leave();
-    window.location.assign('/join');
+    window.location.assign('/');
   };
   const savedRoom = useRoomState(roomId, connection);
   const room = { ...mockRoom, id: roomId, name: savedRoom.state?.room.name ?? mockRoom.name, code: `r/${roomId}`, members };
@@ -49,7 +49,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyFallback, setCopyFallback] = useState(false);
-  const roomUrl = new URL(`/r/${roomId}`, window.location.origin).href;
+  const roomUrl = new URL(`/?room=${encodeURIComponent(roomId)}`, window.location.origin).href;
 
   useEffect(() => { document.title = `${room.name} · Constellate`; }, [room.name]);
   useEffect(() => { if (!copied) return; const timeout = window.setTimeout(() => setCopied(false), 3500); return () => window.clearTimeout(timeout); }, [copied]);
