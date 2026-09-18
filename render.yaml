@@ -55,5 +55,4 @@ databases:
     region: singapore
     plan: free
     postgresMajorVersion: "18"
-    databaseName: constellate
     ipAllowList: []
