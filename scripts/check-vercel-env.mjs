@@ -1,4 +1,16 @@
-const raw = process.env.VITE_SERVER_URL?.trim();
+import { readFileSync } from 'node:fs';
+
+function fromProductionEnvFile() {
+  try {
+    const text = readFileSync(new URL('../client/.env.production', import.meta.url), 'utf8');
+    const line = text.split(/\r?\n/).find(entry => entry.trim().startsWith('VITE_SERVER_URL='));
+    return line?.slice(line.indexOf('=') + 1).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+const raw = process.env.VITE_SERVER_URL?.trim() || fromProductionEnvFile();
 let url;
 try { url = raw ? new URL(raw) : null; } catch { /* handled below */ }
 
