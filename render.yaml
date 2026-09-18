@@ -5,7 +5,7 @@ services:
     name: constellate-api
     runtime: node
     region: singapore
-    plan: 0.5c-512mb
+    plan: free
     numInstances: 1
     buildCommand: npm ci --include=dev && npm run build --workspace=server
     preDeployCommand: npm run db:migrate:production
@@ -45,16 +45,15 @@ services:
   - type: keyvalue
     name: constellate-redis
     region: singapore
-    plan: 256mb
+    plan: free
     maxmemoryPolicy: noeviction
-    persistenceMode: journal-snapshot
+    persistenceMode: off
     ipAllowList: []
 
 databases:
   - name: constellate-postgres
     region: singapore
-    plan: 0.1c-256mb
-    diskSizeGB: 5
+    plan: free
     postgresMajorVersion: "18"
     databaseName: constellate
     ipAllowList: []
