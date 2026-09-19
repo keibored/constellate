@@ -55,7 +55,9 @@ test('Vercel builds the single frontend from the workspace root with SPA routing
     else env.VITE_SERVER_URL = value;
     return spawnSync(process.execPath, [checker], { env, encoding: 'utf8' });
   };
-  assert.equal(check().status, 1);
+  // Vercel can use the checked-in production env file when the dashboard
+  // variable is absent; explicit overrides must still be exact HTTPS origins.
+  assert.equal(check().status, 0);
   assert.equal(check('http://api.example.com').status, 1);
   assert.equal(check('https://api.example.com/').status, 1);
   assert.equal(check('https://api.example.com').status, 0);
