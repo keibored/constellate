@@ -21,7 +21,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
     allowRequest: (request, callback) => callback(null, !draining && runtime.redis.ready && (!request.headers.origin || allowedOrigins.includes(request.headers.origin))),
-    ...(options.production ? { transports: ['websocket' as const] } : {}),
+    ...(options.production ? { transports: ['polling' as const, 'websocket' as const] } : {}),
     pingInterval: 25000,
     pingTimeout: 20000,
     perMessageDeflate: false,
