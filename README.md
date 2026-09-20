@@ -81,7 +81,7 @@ npm run db:migrate:production
 npm start
 ```
 
-Production runs compiled Node code. Socket.IO uses WebSocket-only transport and the Redis adapter, so load-balancer session affinity is unnecessary. Each reconnect rejoins the room and reloads authoritative snapshots. Hosts must support long-lived WebSocket upgrades and frontend SPA fallback for `/r/*`, `/room/*` and `/join`.
+Production runs compiled Node code. Socket.IO starts with HTTP polling and upgrades to WebSocket when available, so rooms still work on networks that block WebSockets. Polling requires requests for one session to reach the same backend instance; the Render Blueprint runs one instance. Configure session affinity before scaling to multiple backend instances. Each reconnect rejoins the room and reloads authoritative snapshots. Frontend hosting must support SPA fallback for `/r/*`, `/room/*` and `/join`.
 
 - `GET /api/health`: Render health check, reporting `server`, `database` and `redis` without credentials; HTTP 503 on dependency failure or draining.
 - `GET /api/ready`: compatible alias of `/api/health`.

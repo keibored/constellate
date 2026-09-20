@@ -155,6 +155,7 @@ try {
   const cors = await readApi('/api/stats/me', { Origin: frontendUrl, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' }, 'OPTIONS');
   assert.equal(cors.status, 204); assert.equal(cors.headers['access-control-allow-origin'], frontendUrl);
   assert.equal((await readApi('/api/stats/me')).status, 401);
+  assert.equal((await readApi('/socket.io/?EIO=4&transport=polling', { Origin: 'https://untrusted.example' })).status, 403);
   const denied = io(remote ? backendUrl : probeUrl, { autoConnect: false, transports: ['websocket'], reconnection: false, timeout: 3000,
     extraHeaders: { Origin: 'https://untrusted.example' }, ...(remote ? {} : { rejectUnauthorized: false }) });
   try {
@@ -163,7 +164,7 @@ try {
     });
     assert.equal(accepted, false, 'An untrusted WebSocket origin must be rejected.');
   } finally { denied.close(); }
-  pass('health verifies PostgreSQL and all Redis connections; CORS preflight succeeds and hostile HTTP/WSS origins are rejected');
+  pass('health verifies PostgreSQL and all Redis connections; CORS preflight succeeds and hostile HTTP/polling/WSS origins are rejected');
   browser = await chromium.launch({ headless: true, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
     `--use-file-for-fake-audio-capture=${tonePath}`, ...(remote ? [] : ['--host-resolver-rules=MAP *.constellate.test 127.0.0.1', '--no-proxy-server'])] });
   const contexts = await Promise.all([1, 2].map(() => browser.newContext({ ignoreHTTPSErrors: !remote })));
@@ -192,6 +193,28 @@ try {
   }
   assert.ok(sockets.length >= 2 && sockets.every(url => url.startsWith('wss:') && url.includes('transport=websocket')));
   const [a, b] = pages;
+  const fallbackContext = await browser.newContext({ ignoreHTTPSErrors: !remote });
+  let blockedUpgrades = 0;
+  await fallbackContext.routeWebSocket('**/socket.io/**', socket => {
+    blockedUpgrades++;
+    socket.close({ code: 1011, reason: 'WebSocket unavailable' });
+  });
+  const fallbackPage = await fallbackContext.newPage();
+  fallbackPage.on('pageerror', error => report.errors.push(error.message));
+  const polling = fallbackPage.waitForResponse(response => response.url().includes('transport=polling') && response.status() === 200);
+  await fallbackPage.goto(`${frontendUrl}/r/${room}`);
+  await fallbackPage.getByLabel('Nickname', { exact: true }).fill('Polling Check');
+  await fallbackPage.getByRole('button', { name: 'Join room', exact: true }).click();
+  await polling;
+  await connected(fallbackPage);
+  await until(() => blockedUpgrades > 0, 'WebSocket upgrade blocked while polling remains connected');
+  await fallbackPage.getByLabel('Message', { exact: true }).fill(`Polling ${runId}`);
+  await fallbackPage.getByRole('button', { name: 'Send message', exact: true }).click();
+  await a.getByText(`Polling ${runId}`, { exact: true }).waitFor();
+  await fallbackPage.getByRole('button', { name: 'Leave room', exact: true }).click();
+  await fallbackPage.waitForURL(url => url.pathname === '/' && !url.searchParams.has('room'));
+  await fallbackContext.close();
+  pass('a browser with blocked WebSocket upgrades joins and chats over HTTP polling');
   await a.getByLabel('Message', { exact: true }).fill(`Production ${runId}`); await a.getByRole('button', { name: 'Send message', exact: true }).click();
   await b.getByText(`Production ${runId}`, { exact: true }).waitFor();
   pass('deep links load the built app; two isolated guests join over WSS and chat without automatic microphone capture');

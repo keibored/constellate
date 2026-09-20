@@ -100,7 +100,7 @@ A healthy response is HTTP 200:
 
 Dependency failure or shutdown drain returns HTTP 503 with component status values. No hostnames, database names, usernames, passwords, URLs, or credentials appear in the response. `/api/ready` is a compatible alias.
 
-Render terminates HTTPS/WSS and forwards to the Node HTTP listener. The client passes the Render `https://` origin to Socket.IO; Socket.IO creates `wss://` connections without a hardcoded WebSocket URL. Production uses WebSocket-only transport, avoiding polling session-affinity requirements. Local development remains unchanged: the empty `VITE_SERVER_URL` uses the page origin, and Vite proxies `/api` and `/socket.io` to the local backend.
+Render terminates HTTPS/WSS and forwards to the Node HTTP listener. The client passes the Render `https://` origin to Socket.IO; Socket.IO starts with HTTP polling and upgrades to `wss://` when available. The polling fallback lets rooms work where WebSockets are blocked. The Blueprint uses one backend instance; configure session affinity before scaling to multiple instances because polling requests for one session must reach the same instance. Local development remains unchanged: the empty `VITE_SERVER_URL` uses the page origin, and Vite proxies `/api` and `/socket.io` to the local backend.
 
 The Redis adapter uses the three clients created from `REDIS_URL` for commands, publishing, and subscriptions. It coordinates live room state and cross-node events. Reconnect performs a fresh room join and reloads authoritative snapshots; the Pub/Sub adapter does not replay missed packets.
 
@@ -150,7 +150,7 @@ The remote check creates a unique room, two guests, a task, and a chat message. 
 
 - Direct navigation and refresh work for `/`, `/join`, `/r/<room>`, and `/room/<room>` on Vercel.
 - Browser requests contain no `localhost`, `127.0.0.1`, `http://`, mixed content, or calls to Vercel `/api`; API requests go to Render HTTPS.
-- Socket.IO connects to the Render domain with WSS and `transport=websocket`.
+- Socket.IO connects to the Render domain with `transport=polling` and upgrades to WSS with `transport=websocket` when available; a blocked WebSocket upgrade leaves polling connected.
 - An unlisted Origin fails both HTTP CORS and the Socket.IO handshake. The Vercel production origin succeeds.
 - Two independent browser profiles share presence, tasks, chat, reactions, and one timer deadline.
 - A Render redeploy causes automatic reconnect without duplicate guests or reset timers/tasks. Logs contain `server.shutdown_complete`.

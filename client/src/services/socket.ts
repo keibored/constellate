@@ -6,8 +6,9 @@ export type RoomSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 // One socket per browser tab. The presence hook owns its connection and listeners.
 export const roomSocket: RoomSocket = io(serverUrl || undefined, {
-  // A single WebSocket does not require load-balancer session affinity.
-  ...(import.meta.env.PROD ? { transports: ['websocket'] } : {}),
+  // The single production backend can keep polling sessions on one instance.
+  // Polling also works on networks that block WebSocket upgrades.
+  ...(import.meta.env.PROD ? { transports: ['polling', 'websocket'], tryAllTransports: true } : {}),
   autoConnect: false,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1_000,
