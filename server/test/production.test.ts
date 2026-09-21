@@ -49,6 +49,7 @@ test('Vercel builds the single frontend from the workspace root with SPA routing
   assert.equal(config.outputDirectory, 'client/dist');
   assert.deepEqual(config.rewrites, [
     { source: '/api/:path*', destination: 'https://constellate-api.onrender.com/api/:path*' },
+    { source: '/socket.io/', destination: 'https://constellate-api.onrender.com/socket.io/' },
     { source: '/socket.io/:path*', destination: 'https://constellate-api.onrender.com/socket.io/:path*' },
     { source: '/(.*)', destination: '/index.html' },
   ]);

@@ -10,6 +10,10 @@
       "destination": "https://constellate-api.onrender.com/api/:path*"
     },
     {
+      "source": "/socket.io/",
+      "destination": "https://constellate-api.onrender.com/socket.io/"
+    },
+    {
       "source": "/socket.io/:path*",
       "destination": "https://constellate-api.onrender.com/socket.io/:path*"
     },
