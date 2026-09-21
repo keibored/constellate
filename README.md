@@ -6,8 +6,8 @@ A collaborative study room built with React, TypeScript, Express, Socket.IO, Pos
 
 ```mermaid
 flowchart LR
-  Browser[React browser app] -->|HTTPS assets| CDN[Static frontend host]
-  Browser -->|HTTPS API and WSS signaling| Node[Node / Express / Socket.IO]
+  Browser[React browser app] -->|HTTPS assets, API and signaling| CDN[Vercel frontend and proxy]
+  CDN -->|proxied API and Socket.IO| Node[Render Node / Express / Socket.IO]
   Node -->|durable rooms, tasks, history| PG[(PostgreSQL)]
   Node -->|live state, leases, Pub/Sub| Redis[(Redis)]
   Browser <-->|WebRTC audio| Peer[Other browsers]
@@ -63,6 +63,7 @@ Development ports: Vite **5173**, Node **3000**, PostgreSQL **5432**, Redis **63
 | `HEALTH_TIMEOUT_MS` | Readiness deadline; default `2000` |
 | `SHUTDOWN_TIMEOUT_MS` | Drain deadline; default `25000`, shorter than the host's termination grace |
 | `VITE_SERVER_URL` | Public build-time HTTPS backend origin for **both** HTTP statistics and Socket.IO; blank locally or behind a same-origin production proxy |
+| `VITE_SAME_ORIGIN_BACKEND` | Production browser-routing switch; `true` on Vercel so `/api` and `/socket.io` use its checked same-origin proxy |
 | `VITE_ICE_SERVERS` | Public JSON ICE array; blank uses Google STUN, `[]` enables host-only local tests |
 | `SERVER_PROXY_TARGET` | Development-only override; normally blank so Vite follows backend `PORT` |
 | `TEST_DATABASE_URL` | Local/CI tests only; never production |
@@ -71,7 +72,7 @@ Rebuild the frontend after changing `VITE_*` values. They are visible to anyone 
 
 ## Production deployment
 
-See the [production runbook](docs/production-v1.md) for the Vercel frontend + Render backend deployment, environment setup, HTTPS/WSS, migrations, monitoring, rollback and acceptance checks. **Deployment files are prepared; hosted resources have not been provisioned in this session.**
+See the [production runbook](docs/production-v1.md) for the Vercel frontend + Render backend deployment, environment setup, HTTPS/WSS, migrations, monitoring, rollback and acceptance checks.
 
 ```sh
 npm ci --include=dev
@@ -81,7 +82,7 @@ npm run db:migrate:production
 npm start
 ```
 
-Production runs compiled Node code. Socket.IO starts with HTTP polling and upgrades to WebSocket when available, so rooms still work on networks that block WebSockets. Polling requires requests for one session to reach the same backend instance; the Render Blueprint runs one instance. Configure session affinity before scaling to multiple backend instances. Each reconnect rejoins the room and reloads authoritative snapshots. Frontend hosting must support SPA fallback for `/r/*`, `/room/*` and `/join`.
+Production runs compiled Node code. Browser API and Socket.IO traffic uses the Vercel origin and is forwarded to Render, avoiding a separate browser connection to the Render hostname. Socket.IO starts with HTTP polling and attempts to upgrade to WebSocket when available, so rooms still work when the upgrade is blocked. Polling requires requests for one session to reach the same backend instance; the Render Blueprint runs one instance. Configure session affinity before scaling to multiple backend instances. Each reconnect rejoins the room and reloads authoritative snapshots. Frontend hosting must support SPA fallback for `/r/*`, `/room/*` and `/join`.
 
 - `GET /api/health`: Render health check, reporting `server`, `database` and `redis` without credentials; HTTP 503 on dependency failure or draining.
 - `GET /api/ready`: compatible alias of `/api/health`.

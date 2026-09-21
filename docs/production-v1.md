@@ -1,14 +1,17 @@
 # Production deployment and hardening V1
 
-Constellate uses one Vercel project for the React/Vite frontend and one Render Blueprint for the Node/Express/Socket.IO backend, PostgreSQL, and Redis. No live resources are created by this repository work.
+Constellate uses one Vercel project for the React/Vite frontend and same-origin reverse proxy, plus one Render Blueprint for the Node/Express/Socket.IO backend, PostgreSQL, and Redis.
 
 ## Production topology
 
 ```text
 Browser
   ├─ HTTPS static app ───────────────> Vercel
-  ├─ HTTPS API + WSS signaling ─────> Render Node service
+  ├─ HTTPS API + Socket.IO ─────────> Vercel same-origin proxy
   └─ peer-to-peer WebRTC audio ─────> other browsers
+
+Vercel same-origin proxy
+  └─ forwarded API + Socket.IO ─────> Render Node service
 
 Render Node service
   ├─ durable rooms/tasks/history ───> Render PostgreSQL
@@ -30,16 +33,17 @@ Create exactly one Vercel project from this repository. Use these project settin
 | Output Directory | `client/dist` |
 | Node version | 24.x, pinned by `.node-version` and root `package.json` |
 
-Do not set the Root Directory to `client`. The frontend imports TypeScript contracts from `shared/`, and Vercel does not allow a project to access files above its configured root. Root `vercel.json` records the commands, output path, security headers, and the SPA rewrite needed for `/r/*`, `/room/*`, and `/join` deep links. The Vercel build fails before compiling if `VITE_SERVER_URL` is missing, insecure, local, or not an exact origin.
+Do not set the Root Directory to `client`. The frontend imports TypeScript contracts from `shared/`, and Vercel does not allow a project to access files above its configured root. Root `vercel.json` records the commands, output path, security headers, the external `/api` and `/socket.io` rewrites, and the SPA rewrite needed for `/r/*`, `/room/*`, and `/join` deep links. The Vercel build fails before compiling unless the checked production backend and same-origin routing switch are exact.
 
 Manually enter this Vercel environment variable for Production:
 
 | Variable | Required | Value |
 | --- | --- | --- |
 | `VITE_SERVER_URL` | Yes | Exact Render backend HTTPS origin, with no trailing slash, path, query, or credentials |
+| `VITE_SAME_ORIGIN_BACKEND` | Yes | `true`; checked into `.env.production` so browsers call Vercel `/api` and `/socket.io` |
 | `VITE_ICE_SERVERS` | No | Public JSON ICE server array; leave unset for the current public STUN default |
 
-`VITE_SERVER_URL` is intentionally public browser configuration. It supplies the same base origin to HTTP statistics requests and Socket.IO. Changing any `VITE_*` variable requires a new frontend deployment. Do not add `DATABASE_URL`, `REDIS_URL`, or private credentials to Vercel.
+`VITE_SERVER_URL` is intentionally public build configuration and pins the Render destination checked by the deployment guard. With `VITE_SAME_ORIGIN_BACKEND=true`, the browser itself uses the Vercel origin for HTTP statistics and Socket.IO. Changing any `VITE_*` variable requires a new frontend deployment. Do not add `DATABASE_URL`, `REDIS_URL`, or private credentials to Vercel.
 
 ## Render backend and managed stores
 
@@ -100,7 +104,7 @@ A healthy response is HTTP 200:
 
 Dependency failure or shutdown drain returns HTTP 503 with component status values. No hostnames, database names, usernames, passwords, URLs, or credentials appear in the response. `/api/ready` is a compatible alias.
 
-Render terminates HTTPS/WSS and forwards to the Node HTTP listener. The client passes the Render `https://` origin to Socket.IO; Socket.IO starts with HTTP polling and upgrades to `wss://` when available. The polling fallback lets rooms work where WebSockets are blocked. The Blueprint uses one backend instance; configure session affinity before scaling to multiple instances because polling requests for one session must reach the same instance. Local development remains unchanged: the empty `VITE_SERVER_URL` uses the page origin, and Vite proxies `/api` and `/socket.io` to the local backend.
+Render terminates HTTPS and forwards to the Node HTTP listener. The production client calls Vercel `/api` and `/socket.io`; Vercel forwards those same-origin requests to Render. Socket.IO starts with HTTP polling and attempts to upgrade to WebSocket when available. The polling connection remains usable when the upgrade or direct Render hostname is blocked. The Blueprint uses one backend instance; configure session affinity before scaling to multiple instances because polling requests for one session must reach the same instance. Local development remains unchanged: the empty `VITE_SERVER_URL` uses the page origin, and Vite proxies `/api` and `/socket.io` to the local backend.
 
 The Redis adapter uses the three clients created from `REDIS_URL` for commands, publishing, and subscriptions. It coordinates live room state and cross-node events. Reconnect performs a fresh room join and reloads authoritative snapshots; the Pub/Sub adapter does not replay missed packets.
 
@@ -115,7 +119,7 @@ On SIGTERM/SIGINT the backend marks health unavailable, refuses new work, closes
 5. Enter `CLIENT_ORIGINS` using the exact Vercel Production origin. Create the Blueprint resources.
 6. Render builds the server and automatically runs `npm run db:migrate:production` before starting it. Confirm the migration log and successful backend deployment.
 7. Open `https://<render-backend>/api/health` and confirm HTTP 200 with all four fields `ok`.
-8. In Vercel, set Production `VITE_SERVER_URL` to the exact Render backend HTTPS origin. Leave `VITE_ICE_SERVERS` unset unless configuring a reviewed ICE list.
+8. In Vercel, set Production `VITE_SERVER_URL` to the exact Render backend HTTPS origin. Keep `VITE_SAME_ORIGIN_BACKEND=true` and leave `VITE_ICE_SERVERS` unset unless configuring a reviewed ICE list.
 9. Deploy the single Vercel frontend. Open a deep room link directly and confirm it loads.
 10. Confirm the browser's actual production origin exactly matches Render `CLIENT_ORIGINS`. If Vercel assigned a different alias/custom domain, update `CLIENT_ORIGINS` and redeploy only the Render backend.
 11. Run the hosted verification and the manual production checklist below.
@@ -149,8 +153,8 @@ The remote check creates a unique room, two guests, a task, and a chat message. 
 ## Manual production checklist
 
 - Direct navigation and refresh work for `/`, `/join`, `/r/<room>`, and `/room/<room>` on Vercel.
-- Browser requests contain no `localhost`, `127.0.0.1`, `http://`, mixed content, or calls to Vercel `/api`; API requests go to Render HTTPS.
-- Socket.IO connects to the Render domain with `transport=polling` and upgrades to WSS with `transport=websocket` when available; a blocked WebSocket upgrade leaves polling connected.
+- Browser requests contain no `localhost`, `127.0.0.1`, `http://`, mixed content, or direct calls to the Render hostname; API requests use Vercel `/api`.
+- Socket.IO connects through Vercel `/socket.io` with `transport=polling` and attempts a WebSocket upgrade when available; a blocked upgrade leaves polling connected.
 - An unlisted Origin fails both HTTP CORS and the Socket.IO handshake. The Vercel production origin succeeds.
 - Two independent browser profiles share presence, tasks, chat, reactions, and one timer deadline.
 - A Render redeploy causes automatic reconnect without duplicate guests or reset timers/tasks. Logs contain `server.shutdown_complete`.

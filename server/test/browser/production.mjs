@@ -106,7 +106,7 @@ try {
     assert.equal(cert.code, 0, cert.output);
     const tls = { key: await readFile(keyFile), cert: await readFile(certFile) };
     const built = await run([`${root}/node_modules/vite/bin/vite.js`, 'build', '--outDir', `${root}/.vite/production-client`, '--emptyOutDir'],
-      { NODE_ENV: 'production', VITE_SERVER_URL: backendUrl, VITE_ICE_SERVERS: '[]' }, `${root}/client`);
+      { NODE_ENV: 'production', VITE_SERVER_URL: backendUrl, VITE_SAME_ORIGIN_BACKEND: 'false', VITE_ICE_SERVERS: '[]' }, `${root}/client`);
     assert.equal(built.code, 0, built.output);
     for (let i = 0; i < 2; i++) {
       const node = { port: await freePort(), logs: '' };
@@ -219,11 +219,12 @@ try {
   await b.getByText(`Production ${runId}`, { exact: true }).waitFor();
   pass('deep links load the built app; two isolated guests join over WSS and chat without automatic microphone capture');
   // Exercise the HTTP base URL with a real UI statistics request and bearer preflight.
-  const statsResponse = a.waitForResponse(response => response.url().startsWith(`${backendUrl}/api/stats/me?`) && response.status() === 200);
+  const browserBackendUrl = remote ? frontendUrl : backendUrl;
+  const statsResponse = a.waitForResponse(response => response.url().startsWith(`${browserBackendUrl}/api/stats/me?`) && response.status() === 200);
   await a.getByRole('link', { name: 'Stats', exact: true }).click();
   await statsResponse;
   await a.getByRole('link', { name: 'Room', exact: true }).click();
-  pass('statistics use the separate HTTPS backend and authorize through CORS');
+  pass(`statistics use the ${remote ? 'same-origin Vercel proxy' : 'separate HTTPS backend'} and authorize successfully`);
   const state = page => page.evaluate(async () => {
     let energy = 0;
     const pcs = window.__productionTest.pcs.filter(pc => pc.connectionState !== 'closed');

@@ -43,6 +43,7 @@ test('frontend backend URL permits same origin or explicit HTTPS and rejects mix
 
 test('Vercel builds the single frontend from the workspace root with SPA routing', async () => {
   const config = JSON.parse(await readFile(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  const productionEnv = await readFile(new URL('../../client/.env.production', import.meta.url), 'utf8');
   assert.equal(config.framework, 'vite');
   assert.equal(config.installCommand, 'npm ci --include=dev');
   assert.equal(config.buildCommand, 'npm run build:vercel');
@@ -53,19 +54,25 @@ test('Vercel builds the single frontend from the workspace root with SPA routing
     { source: '/socket.io/:path*', destination: 'https://constellate-api.onrender.com/socket.io/:path*' },
     { source: '/(.*)', destination: '/index.html' },
   ]);
+  assert.match(productionEnv, /^VITE_SERVER_URL=https:\/\/constellate-api\.onrender\.com$/m);
+  assert.match(productionEnv, /^VITE_SAME_ORIGIN_BACKEND=true$/m);
   const checker = fileURLToPath(new URL('../../scripts/check-vercel-env.mjs', import.meta.url));
-  const check = (value?: string) => {
+  const check = (value?: string, sameOrigin?: string) => {
     const env = { ...process.env };
     if (value === undefined) delete env.VITE_SERVER_URL;
     else env.VITE_SERVER_URL = value;
+    if (sameOrigin === undefined) delete env.VITE_SAME_ORIGIN_BACKEND;
+    else env.VITE_SAME_ORIGIN_BACKEND = sameOrigin;
     return spawnSync(process.execPath, [checker], { env, encoding: 'utf8' });
   };
   // Vercel can use the checked-in production env file when the dashboard
   // variable is absent; explicit overrides must still be exact HTTPS origins.
   assert.equal(check().status, 0);
   assert.equal(check('http://api.example.com').status, 1);
-  assert.equal(check('https://api.example.com/').status, 1);
-  assert.equal(check('https://api.example.com').status, 0);
+  assert.equal(check('https://constellate-api.onrender.com/').status, 1);
+  assert.equal(check('https://api.example.com').status, 1);
+  assert.equal(check('https://constellate-api.onrender.com', 'false').status, 1);
+  assert.equal(check('https://constellate-api.onrender.com', 'true').status, 0);
 });
 
 test('health checks return bounded failure for rejection and stuck dependencies', async () => {

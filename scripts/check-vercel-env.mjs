@@ -1,22 +1,30 @@
 import { readFileSync } from 'node:fs';
 
-function fromProductionEnvFile() {
+const expectedBackend = 'https://constellate-api.onrender.com';
+
+function productionEnvFile() {
   try {
     const text = readFileSync(new URL('../client/.env.production', import.meta.url), 'utf8');
-    const line = text.split(/\r?\n/).find(entry => entry.trim().startsWith('VITE_SERVER_URL='));
-    return line?.slice(line.indexOf('=') + 1).trim();
+    return Object.fromEntries(text.split(/\r?\n/).flatMap(entry => {
+      const line = entry.trim();
+      if (!line || line.startsWith('#') || !line.includes('=')) return [];
+      const split = line.indexOf('=');
+      return [[line.slice(0, split), line.slice(split + 1).trim()]];
+    }));
   } catch {
-    return undefined;
+    return {};
   }
 }
 
-const raw = process.env.VITE_SERVER_URL?.trim() || fromProductionEnvFile();
+const file = productionEnvFile();
+const raw = process.env.VITE_SERVER_URL?.trim() || file.VITE_SERVER_URL;
+const sameOrigin = process.env.VITE_SAME_ORIGIN_BACKEND?.trim() || file.VITE_SAME_ORIGIN_BACKEND;
 let url;
 try { url = raw ? new URL(raw) : null; } catch { /* handled below */ }
 
 if (!url || url.protocol !== 'https:' || url.origin !== raw
   || url.username || url.password || url.pathname !== '/' || url.search || url.hash
-  || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
-  console.error('Vercel requires VITE_SERVER_URL to be the exact Render backend HTTPS origin (no trailing slash, path, credentials, query, localhost, or wildcard).');
+  || raw !== expectedBackend || sameOrigin !== 'true') {
+  console.error(`Vercel requires VITE_SERVER_URL=${expectedBackend} and VITE_SAME_ORIGIN_BACKEND=true so browsers use the checked reverse proxy.`);
   process.exitCode = 1;
 }
