@@ -47,7 +47,11 @@ test('Vercel builds the single frontend from the workspace root with SPA routing
   assert.equal(config.installCommand, 'npm ci --include=dev');
   assert.equal(config.buildCommand, 'npm run build:vercel');
   assert.equal(config.outputDirectory, 'client/dist');
-  assert.deepEqual(config.rewrites, [{ source: '/(.*)', destination: '/index.html' }]);
+  assert.deepEqual(config.rewrites, [
+    { source: '/api/:path*', destination: 'https://constellate-api.onrender.com/api/:path*' },
+    { source: '/socket.io/:path*', destination: 'https://constellate-api.onrender.com/socket.io/:path*' },
+    { source: '/(.*)', destination: '/index.html' },
+  ]);
   const checker = fileURLToPath(new URL('../../scripts/check-vercel-env.mjs', import.meta.url));
   const check = (value?: string) => {
     const env = { ...process.env };
