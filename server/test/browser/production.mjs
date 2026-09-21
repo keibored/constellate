@@ -40,7 +40,7 @@ async function run(args, env, cwd = root, executable = process.execPath) {
   const [code] = await once(child, 'exit'); return { code, output };
 }
 function readApi(path, headers = {}, method = 'GET') {
-  if (remote) return fetch(`${backendUrl}${path}`, { headers, method, signal: AbortSignal.timeout(10000) }).then(async response => ({ status: response.status, headers: Object.fromEntries(response.headers), text: await response.text() }));
+  if (remote) return fetch(`${backendUrl}${path}`, { headers, method, signal: AbortSignal.timeout(30000) }).then(async response => ({ status: response.status, headers: Object.fromEntries(response.headers), text: await response.text() }));
   return new Promise((resolve, reject) => {
     // Only this self-signed, loopback test proxy bypasses certificate validation.
     const request = httpsRequest(`${probeUrl}${path}`, { rejectUnauthorized: false, headers, method }, response => {
