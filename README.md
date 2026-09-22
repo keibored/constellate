@@ -1,6 +1,43 @@
-# Constellate
+<div align="center">
+  <img src="client/public/favicon.svg" alt="Constellate" width="72" />
+  <h1>Constellate</h1>
+  <p><em>A cozy real-time study room for focusing together, wherever everyone is.</em></p>
+  <p>
+    <a href="https://constellate-pi.vercel.app/?room=demo"><strong>Open the live demo</strong></a>
+    ·
+    <a href="#architecture">Architecture</a>
+    ·
+    <a href="#local-setup">Local setup</a>
+  </p>
+  <p>
+    <a href="https://github.com/keibored/constellate/actions/workflows/ci.yml">
+      <img src="https://github.com/keibored/constellate/actions/workflows/ci.yml/badge.svg" alt="Verify deployable build" />
+    </a>
+  </p>
+</div>
 
-A collaborative study room built with React, TypeScript, Express, Socket.IO, PostgreSQL and Redis. It includes guest presence, a shared Pomodoro timer, chat, reactions, persistent tasks, study statistics and optional audio-only WebRTC. Production Hardening V1 preserves the existing UI and features.
+Constellate turns a room link into a shared focus space. Guests appear at pixel-art desks, work from one server-authoritative Pomodoro timer, share quests and messages, send small reactions, and optionally join audio-only voice—without creating an account.
+
+## Highlights
+
+| Experience | Engineering behind it |
+| --- | --- |
+| Live study-room presence | Socket.IO membership, stable desk assignment and multi-tab guest identity |
+| One shared Pomodoro | Server-owned deadlines that survive refreshes, reconnects and backend restarts |
+| Shared quests, chat and reactions | PostgreSQL persistence plus Redis-backed live room state and Pub/Sub |
+| Resilient room recovery | Automatic rejoin, authoritative snapshots, disconnect grace and stale-event protection |
+| Optional audio-only voice | Consent-first WebRTC mesh with bounded Socket.IO signaling and track cleanup |
+| Personal study statistics | Short-lived room-scoped access tokens and server-side study accounting |
+
+## Stack
+
+| Layer | Technology |
+| --- | --- |
+| Frontend | React, TypeScript, Vite |
+| Backend | Node.js, Express, Socket.IO |
+| Data | PostgreSQL, Redis |
+| Realtime media | WebRTC |
+| Production | Vercel, Render, GitHub Actions |
 
 ## Architecture
 
