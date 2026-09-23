@@ -25,6 +25,7 @@ export function Dashboard() {
       <article className="product-card action-card"><Users/><h2>Join a room</h2><p>Enter the code from a friend’s invitation.</p><form className="dashboard-join" onSubmit={join}><input aria-label="Room code" placeholder="demo" maxLength={64} value={roomId} onChange={event => { setRoomId(event.target.value); setError(null); }}/><button className="primary-button">Join</button></form>{error && <p className="join-error">{error}</p>}</article>
     </section>
     {recent && <section className="recent-room product-card"><div><p className="eyebrow">RECENT ROOM</p><h2>{recent}</h2><p>Pick up where you left off.</p></div><a className="secondary-button" href={`/r/${encodeURIComponent(recent)}`}>Open room</a></section>}
-    {!user && <p className="dashboard-note">{configured ? 'Sign in to keep rooms and progress across devices. Guest rooms remain available.' : 'Guest mode is ready. Account features will appear after Supabase is connected.'}</p>}
+    {!user && <p className="dashboard-note">{configured ? 'Sign in to establish your Constellate account. Guest rooms remain available.' : 'Guest mode is ready. Account features will appear after Supabase is connected.'}</p>}
+    {user && <p className="dashboard-note">Account connected. Owned rooms and synced history are next in Constellate v2.</p>}
   </main>;
 }

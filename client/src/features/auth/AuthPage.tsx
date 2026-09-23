@@ -9,7 +9,7 @@ export function AuthPage() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (user) return <main className="product-page"><section className="product-card auth-card"><span className="brand-star">✦</span><h1>You are signed in.</h1><p>Continue to your rooms and study history.</p><a className="primary-button" href="/">Open dashboard</a></section></main>;
+  if (user) return <main className="product-page"><section className="product-card auth-card"><span className="brand-star">✦</span><h1>You are signed in.</h1><p>Your Constellate account is ready.</p><a className="primary-button" href="/">Open dashboard</a></section></main>;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setMessage(null);
     if (!supabase) { setMessage('Account sign-in is not configured yet. Guest rooms still work.'); setBusy(false); return; }
@@ -24,7 +24,7 @@ export function AuthPage() {
   return <main className="product-page"><section className="product-card auth-card">
     <a className="product-brand" href="/"><span className="brand-star">✦</span><span>constellate</span></a>
     <p className="eyebrow">YOUR STUDY UNIVERSE</p><h1>{mode === 'signin' ? 'Welcome back.' : 'Create your account.'}</h1>
-    <p className="product-copy">Keep your rooms, identity, and progress together across devices.</p>
+    <p className="product-copy">Create your Constellate account. Room ownership and synced history are the next v2 milestone.</p>
     {!configured && <p className="product-notice">Account setup is being connected. You can continue using guest rooms.</p>}
     <form className="auth-form" onSubmit={submit}>
       <label htmlFor="auth-email">Email</label><input id="auth-email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} />
