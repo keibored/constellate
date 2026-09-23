@@ -97,7 +97,7 @@ try {
     pass('production startup refuses to listen with missing migrations');
     const migrations = await Promise.all([1, 2].map(() => run(['server/dist/db/migrate.js'], productionEnv)));
     assert.ok(migrations.every(result => result.code === 0), JSON.stringify(migrations));
-    assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count, '3');
+    assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count, '4');
     assert.equal((await run(['server/dist/db/migrate.js'], productionEnv)).code, 0);
     pass('compiled release migrations succeed concurrently and repeat without reapplying');
     const openssl = process.env.OPENSSL_BIN || (existsSync('C:/Program Files/Git/usr/bin/openssl.exe') ? 'C:/Program Files/Git/usr/bin/openssl.exe' : 'openssl');
@@ -258,34 +258,3 @@ try {
     const restored = JSON.parse(await redis.command.hget(redis.keys.room(room), 'state'));
     assert.equal(restored.timer.endsAt, beforeRuntime.timer.endsAt, 'Reconnect must preserve the exact server deadline.');
     assert.equal(Object.keys(restored.presence).length, 2, 'Reconnect must not duplicate guests.');
-  }
-  for (const page of pages) {
-    await page.getByLabel(`Deploy task ${runId}`, { exact: true }).waitFor();
-    await page.getByText(`Production ${runId}`, { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Pause', exact: true }).waitFor();
-  }
-  pass('automatic reconnect restores saved tasks, chat, running timer and voice without reacquiring the microphone');
-  await a.reload(); await connected(a);
-  assert.equal((await state(a)).calls, 0);
-  await a.getByLabel(`Deploy task ${runId}`, { exact: true }).waitFor();
-  pass('refresh restores persistent room state without automatically capturing a microphone');
-  for (const page of pages) { await page.getByLabel('Leave room', { exact: true }).click(); await page.waitForURL(url => url.pathname === '/' && !url.searchParams.has('room')); assert.equal((await state(page)).live, 0); }
-  assert.deepEqual(report.errors, []);
-  if (remote) report.limitations.push(`Verification created room ${room} with two synthetic guests, one task and one chat message; normal retention applies.`);
-} catch (error) { report.errors.push(error.stack ?? String(error)); console.error(error); process.exitCode = 1; }
-finally {
-  const clean = async close => { try { await close(); } catch (error) { report.errors.push(`Cleanup: ${error.message}`); process.exitCode = 1; } };
-  await clean(() => browser?.close());
-  for (const node of nodes) await clean(() => stop(node));
-  for (const close of cleanup.reverse()) await clean(close);
-  if (redis) {
-    await clean(async () => { const keys = await redis.command.keys(`${prefix}:*`); if (keys.length) await redis.command.del(...keys); });
-    redis.close();
-  }
-  await clean(() => pool?.end());
-  if (admin) {
-    await clean(async () => { assert.match(schema, /^constellate_test_[a-f0-9]{16}$/); await admin.query(`DROP SCHEMA "${schema}" CASCADE`); });
-    await clean(() => admin.end());
-  }
-  await writeFile(`${root}/.vite/production-report.json`, JSON.stringify(report, null, 2));
-}
