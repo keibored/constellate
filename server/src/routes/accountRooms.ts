@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import type { OwnedRoomRepository } from '../repositories/roomRepository.js';
 import { RoomStateError } from '../repositories/roomRepository.js';
@@ -27,6 +27,29 @@ export function accountRoomRoutes(repository: OwnedRoomRepository, verifier?: Ac
     try { response.status(201).json({ room: await repository.createOwned(roomId(), response.locals.account.id, name) }); }
     catch (error) {
       if (error instanceof RoomStateError) { response.status(409).json({ error: error.message }); return; }
+      next(error);
+    }
+  });
+  router.patch('/:roomId', async (request, response, next) => {
+    const visibility = request.body?.visibility;
+    if (visibility !== 'public' && visibility !== 'private') {
+      response.status(400).json({ error: 'Choose public or private visibility.' }); return;
+    }
+    try {
+      response.json({ room: await repository.setVisibility(request.params.roomId, response.locals.account.id, visibility) });
+    } catch (error) {
+      if (error instanceof RoomStateError) { response.status(404).json({ error: 'Room not found.' }); return; }
+      next(error);
+    }
+  });
+  router.post('/:roomId/invite', async (request, response, next) => {
+    try {
+      const token = randomBytes(24).toString('base64url');
+      await repository.setInviteToken(request.params.roomId, response.locals.account.id,
+        createHash('sha256').update(token).digest('hex'));
+      response.json({ token });
+    } catch (error) {
+      if (error instanceof RoomStateError) { response.status(404).json({ error: 'Room not found.' }); return; }
       next(error);
     }
   });
