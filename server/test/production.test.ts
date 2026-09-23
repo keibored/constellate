@@ -54,6 +54,10 @@ test('Vercel builds the single frontend from the workspace root with SPA routing
     { source: '/socket.io/:path*', destination: 'https://constellate-api.onrender.com/socket.io/:path*' },
     { source: '/(.*)', destination: '/index.html' },
   ]);
+  const securityHeaders = Object.fromEntries(config.headers[0].headers.map((header: { key: string; value: string }) => [header.key, header.value]));
+  assert.match(securityHeaders['Content-Security-Policy'], /default-src 'self'/);
+  assert.match(securityHeaders['Content-Security-Policy'], /connect-src 'self' https:\/\/constellate-api\.onrender\.com wss:\/\/constellate-api\.onrender\.com/);
+  assert.match(securityHeaders['Content-Security-Policy'], /frame-ancestors 'none'/);
   assert.match(productionEnv, /^VITE_SERVER_URL=https:\/\/constellate-api\.onrender\.com$/m);
   assert.match(productionEnv, /^VITE_SAME_ORIGIN_BACKEND=true$/m);
   const checker = fileURLToPath(new URL('../../scripts/check-vercel-env.mjs', import.meta.url));

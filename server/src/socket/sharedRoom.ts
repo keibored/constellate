@@ -12,15 +12,25 @@ import { attachVoiceHandlers } from './voiceHandlers.js';
 import { RuntimeUnavailableError } from '../redis/connection.js';
 import { databaseErrorCode } from '../db/pool.js';
 import { log } from '../logger.js';
+import { RedisRateLimiter, requestRateKey } from '../security/rateLimit.js';
 
-interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string }
+interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string; clientKey?: string }
 const channel = (roomId: string) => `room:${roomId}`;
 
-export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess, options: { production?: boolean } = {}) {
+export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess, options: { production?: boolean; trustProxy?: number } = {}) {
   let draining = false;
+  const rateLimiter = new RedisRateLimiter(runtime.redis);
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
-    allowRequest: (request, callback) => callback(null, !draining && runtime.redis.ready && (!request.headers.origin || allowedOrigins.includes(request.headers.origin))),
+    allowRequest: (request, callback) => {
+      if (draining || !runtime.redis.ready || (request.headers.origin && !allowedOrigins.includes(request.headers.origin))) {
+        callback(null, false); return;
+      }
+      const clientKey = requestRateKey(request, options.trustProxy ?? 0);
+      void rateLimiter.allow('handshake', clientKey, 60, 60_000)
+        .then(allowed => callback(null, allowed && !draining && runtime.redis.ready))
+        .catch(() => callback(null, false));
+    },
     ...(options.production ? { transports: ['polling' as const, 'websocket' as const] } : {}),
     pingInterval: 25000,
     pingTimeout: 20000,
@@ -47,6 +57,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
     } else void runtime.sweep().catch(() => {});
   };
   io.on('connection', socket => {
+    socket.data.clientKey = requestRateKey(socket.request, options.trustProxy ?? 0);
     let queue = Promise.resolve();
     let pending = 0;
     const schedule = (work: () => Promise<void>, acknowledge?: (result: RoomResult) => void, operation?: RoomError['operation']) => {
@@ -88,6 +99,14 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       schedule(async () => {
         if (!socket.connected) return;
         runtime.redis.requireReady();
+        const clientKey = socket.data.clientKey!;
+        if (!await rateLimiter.allow('room-join', clientKey, 30, 60_000)) {
+          fail('Too many room changes. Wait a minute and try again.', acknowledge); return;
+        }
+        const missing = !join.restore && (!repository.exists || !await repository.exists(join.roomId));
+        if (missing && !await rateLimiter.allow('room-create', clientKey, 10, 60 * 60_000)) {
+          fail('Too many new rooms from this network. Try again later.', acknowledge); return;
+        }
         await repository.load(join.roomId, !join.restore);
         if (!socket.connected) return;
         const current = socket.data.membership;

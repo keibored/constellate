@@ -124,6 +124,8 @@ Production runs compiled Node code. Browser API and Socket.IO traffic uses the V
 - `GET /api/health`: Render health check, reporting `server`, `database` and `redis` without credentials; HTTP 503 on dependency failure or draining.
 - `GET /api/ready`: compatible alias of `/api/health`.
 - Startup refuses missing/changed migrations or unavailable dependencies. Health responses are not cached.
+- Redis-backed limits bound connection handshakes, room changes and new-room creation per network across backend instances.
+- Vercel serves a restrictive Content Security Policy alongside HSTS, clickjacking, MIME-sniffing, referrer and permissions protections.
 - SIGTERM/SIGINT stops new work, closes transports so clients retry, drains accepted work/accounting, then closes Redis/PostgreSQL. A deadline bounds shutdown.
 - Production logs are JSON with timestamps, levels and event names. HTTP logs use generated request IDs and route patterns. Credentials, bodies, authorization headers, query strings and WebRTC payloads are excluded.
 

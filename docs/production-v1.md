@@ -108,6 +108,8 @@ Render terminates HTTPS and forwards to the Node HTTP listener. The production c
 
 The Redis adapter uses the three clients created from `REDIS_URL` for commands, publishing, and subscriptions. It coordinates live room state and cross-node events. Reconnect performs a fresh room join and reloads authoritative snapshots; the Pub/Sub adapter does not replay missed packets.
 
+The same Redis service applies fixed-window limits to Socket.IO handshakes, room changes and creation of previously unknown rooms. Client network addresses honor the configured trusted-proxy depth and are hashed before being used in expiring Redis keys. Vercel responses include a Content Security Policy that permits this app's own scripts/styles, same-origin API/Socket.IO traffic, the reviewed Render fallback origin and audio media while blocking framing, plugins and foreign script execution.
+
 On SIGTERM/SIGINT the backend marks health unavailable, refuses new work, closes transports so clients retry, drains accepted mutations and accounting, then closes Redis and PostgreSQL. The 25-second application deadline fits inside Render's 30-second shutdown grace.
 
 ## Exact deployment order
@@ -156,6 +158,7 @@ The remote check creates a unique room, two guests, a task, and a chat message. 
 - Browser requests contain no `localhost`, `127.0.0.1`, `http://`, mixed content, or direct calls to the Render hostname; API requests use Vercel `/api`.
 - Socket.IO connects through Vercel `/socket.io` with `transport=polling` and attempts a WebSocket upgrade when available; a blocked upgrade leaves polling connected.
 - An unlisted Origin fails both HTTP CORS and the Socket.IO handshake. The Vercel production origin succeeds.
+- Response headers include the expected Content Security Policy with `frame-ancestors 'none'` and the app still connects, renders and joins voice without CSP console errors.
 - Two independent browser profiles share presence, tasks, chat, reactions, and one timer deadline.
 - A Render redeploy causes automatic reconnect without duplicate guests or reset timers/tasks. Logs contain `server.shutdown_complete`.
 - `/api/health` becomes 503 during dependency loss and returns to 200 after recovery. Test deliberate outages only in staging.

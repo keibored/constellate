@@ -10,6 +10,7 @@ export function redisKeys(prefix: string) {
     room: (roomId: string) => `${prefix}:room:${roomId}:runtime`,
     due: `${prefix}:runtime:due`,
     access: (token: string) => `${prefix}:access:${token}`,
+    rate: (scope: string, key: string) => `${prefix}:rate:${scope}:${key}`,
     adapter: `${prefix}:socket.io`,
   };
 }

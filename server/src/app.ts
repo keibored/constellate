@@ -73,7 +73,9 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
   const httpServer = createServer(app);
   const access = new RedisStatsAccess(shared.runtime);
   app.use('/api', statsRoutes(shared.repository, shared.runtime, access));
-  const realtime = attachSharedRoomSockets(httpServer, allowedOrigins, repository, shared.runtime, access, { production: options.production });
+  const realtime = attachSharedRoomSockets(httpServer, allowedOrigins, repository, shared.runtime, access, {
+    production: options.production, trustProxy: options.trustProxy,
+  });
   app.use((_request, response) => { response.status(404).json({ error: 'Not found.' }); });
   const handleError: ErrorRequestHandler = (error, _request, response, _next) => {
     const status = error?.type === 'entity.too.large' ? 413 : error?.type === 'entity.parse.failed' ? 400 : 500;
