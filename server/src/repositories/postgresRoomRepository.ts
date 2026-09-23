@@ -31,6 +31,26 @@ export class PostgresRoomRepository implements RoomRepository, OwnedRoomReposito
        WHERE owner_user_id = $1 ORDER BY updated_at DESC LIMIT 50`, [ownerUserId]);
     return result.rows.map(row => this.summary(row));
   }
+  async setVisibility(roomId: string, ownerUserId: string, visibility: 'public' | 'private') {
+    const result = await this.pool.query<RoomRow & { visibility: 'public' | 'private' }>(
+      `UPDATE rooms SET visibility = $3, updated_at = clock_timestamp()
+       WHERE id = $1 AND owner_user_id = $2
+       RETURNING id, name, visibility, created_at, updated_at`, [roomId, ownerUserId, visibility]);
+    if (!result.rowCount) throw new RoomNotFoundError();
+    return this.summary(result.rows[0]);
+  }
+  async setInviteToken(roomId: string, ownerUserId: string, tokenHash: string) {
+    const result = await this.pool.query(
+      'UPDATE rooms SET invite_token_hash = $3 WHERE id = $1 AND owner_user_id = $2', [roomId, ownerUserId, tokenHash]);
+    if (!result.rowCount) throw new RoomNotFoundError();
+  }
+  async roomAccess(roomId: string) {
+    const result = await this.pool.query<{ owner_user_id: string | null; visibility: 'public' | 'private'; invite_token_hash: string | null }>(
+      'SELECT owner_user_id, visibility, invite_token_hash FROM rooms WHERE id = $1', [roomId]);
+    if (!result.rowCount) return null;
+    const row = result.rows[0];
+    return { ownerUserId: row.owner_user_id, visibility: row.visibility, inviteTokenHash: row.invite_token_hash };
+  }
   load(roomId: string, createIfMissing = true) { return this.transaction(roomId, undefined, createIfMissing); }
   mutate(roomId: string, action: RoomMutation) { return this.transaction(roomId, action); }
 
