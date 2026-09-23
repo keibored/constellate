@@ -76,6 +76,9 @@ button svg { flex-shrink: 0; }
 .recent-room { max-width: 880px; margin: 20px auto 0; padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .recent-room .eyebrow, .recent-room h2, .recent-room p { margin: 0 0 4px; }
 .dashboard-note { text-align: center; color: var(--muted); font-size: 12px; margin: 26px auto 0; }
+.owned-rooms { max-width: 880px; margin: 34px auto 0; }
+.owned-rooms > .eyebrow { margin-left: 4px; }
+.owned-rooms .recent-room { color: inherit; margin-top: 10px; }
 .auth-card { width: min(440px, 100%); margin: 7vh auto 0; padding: 34px; }
 .auth-card > .product-brand { margin-bottom: 36px; }
 .auth-card h1 { font-family: var(--mono); font-size: 30px; margin: 10px 0; }

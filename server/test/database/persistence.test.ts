@@ -51,7 +51,12 @@ async function fixture(t: TestContext) {
 test('SQL migrations are repeatable; room transactions persist metadata/tasks, serialize writes and enforce foreign keys', async t => {
   const f = await fixture(t);
   await assert.rejects(assertMigrationsCurrent(f.pool), /schema is missing/);
-  assert.deepEqual(await migrate(f.pool), ['001_create_rooms.sql', '002_create_tasks.sql', '003_study_sessions.sql']);
+  assert.deepEqual(await migrate(f.pool), [
+    '001_create_rooms.sql',
+    '002_create_tasks.sql',
+    '003_study_sessions.sql',
+    '004_owned_rooms.sql',
+  ]);
   assert.deepEqual(await migrate(f.pool), []);
   await assertMigrationsCurrent(f.pool);
   assert.equal((await f.repository.load('demo')).room.name, 'Late night grind');

@@ -97,7 +97,7 @@ try {
     pass('production startup refuses to listen with missing migrations');
     const migrations = await Promise.all([1, 2].map(() => run(['server/dist/db/migrate.js'], productionEnv)));
     assert.ok(migrations.every(result => result.code === 0), JSON.stringify(migrations));
-    assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count, '3');
+    assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count, '4');
     assert.equal((await run(['server/dist/db/migrate.js'], productionEnv)).code, 0);
     pass('compiled release migrations succeed concurrently and repeat without reapplying');
     const openssl = process.env.OPENSSL_BIN || (existsSync('C:/Program Files/Git/usr/bin/openssl.exe') ? 'C:/Program Files/Git/usr/bin/openssl.exe' : 'openssl');

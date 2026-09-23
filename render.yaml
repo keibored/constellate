@@ -39,6 +39,10 @@ services:
           property: connectionString
       - key: REDIS_KEY_PREFIX
         value: constellate:production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
 
   - type: keyvalue
     name: constellate-redis

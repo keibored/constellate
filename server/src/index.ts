@@ -7,6 +7,7 @@ import { PostgresStudySessionRepository } from './repositories/postgresStudySess
 import { RedisRoomRuntime } from './redis/roomRuntime.js';
 import { log } from './logger.js';
 import { createShutdown } from './shutdown.js';
+import { SupabaseAccountVerifier } from './services/supabaseAuth.js';
 
 async function main() {
   const environment = loadServerEnvironment();
@@ -15,8 +16,11 @@ async function main() {
   const { pool, redis } = await connectDependencies(environment);
   const studyRepository = new PostgresStudySessionRepository(pool);
   const rooms = new PostgresRoomRepository(pool);
+  const supabaseUrl = environment.SUPABASE_URL?.trim();
+  const supabaseKey = environment.SUPABASE_PUBLISHABLE_KEY?.trim();
+  const accountVerifier = supabaseUrl && supabaseKey ? new SupabaseAccountVerifier(supabaseUrl, supabaseKey) : undefined;
   const runtime = new RedisRoomRuntime(redis, rooms, studyRepository);
-  const { httpServer, io, closeRuntime, beginDrain } = createAppServer(allowedOrigins, rooms, { runtime, repository: studyRepository }, options);
+  const { httpServer, io, closeRuntime, beginDrain } = createAppServer(allowedOrigins, rooms, { runtime, repository: studyRepository }, { ...options, accountVerifier });
   const shutdown = createShutdown({
     beginDrain,
     closeConnections: () => new Promise<void>(resolve => {
