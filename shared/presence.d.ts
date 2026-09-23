@@ -25,14 +25,14 @@ export interface MemberPresence {
   deskId: DeskId | null;
 }
 
-export interface RoomJoinPayload { roomId: string; user: RoomUser; status?: PresenceStatus; restore?: boolean }
+export interface RoomJoinPayload { roomId: string; user: RoomUser; status?: PresenceStatus; restore?: boolean; accountToken?: string; inviteToken?: string }
 export interface PresenceList { roomId: string; members: MemberPresence[]; epoch?: string; revision?: number }
 export interface PresenceJoined { roomId: string; member: MemberPresence }
 export interface PresenceUpdated { roomId: string; member: MemberPresence }
 export interface PresenceLeft { roomId: string; userId: string }
 export interface StatusUpdatePayload { roomId: string; userId: string; status: PresenceStatus }
 export interface RoomError { message: string; operation?: 'status:update' | `timer:${TimerAction}` | 'chat:send' | 'reaction:send' | PersistentOperation }
-export type RoomResult = { ok: true } | { ok: false; error: string; code?: 'ROOM_NOT_FOUND'; retryable?: boolean };
+export type RoomResult = { ok: true } | { ok: false; error: string; code?: 'ROOM_NOT_FOUND' | 'ROOM_FORBIDDEN'; retryable?: boolean };
 
 export interface ClientToServerEvents {
   'voice:join': (payload: VoiceJoinRequest, acknowledge: (result: VoiceJoinResult) => void) => void;
