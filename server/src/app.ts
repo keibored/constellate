@@ -9,6 +9,9 @@ import type { RedisRoomRuntime } from './redis/roomRuntime.js';
 import { RedisStatsAccess } from './redis/statsAccess.js';
 import { attachSharedRoomSockets } from './socket/sharedRoom.js';
 import { log } from './logger.js';
+import { accountRoomRoutes } from './routes/accountRooms.js';
+import type { OwnedRoomRepository } from './repositories/roomRepository.js';
+import type { AccountVerifier } from './services/supabaseAuth.js';
 
 export async function boundedHealth(check: () => Promise<unknown>, timeoutMs: number) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -23,7 +26,7 @@ export async function boundedHealth(check: () => Promise<unknown>, timeoutMs: nu
 
 export function createAppServer(allowedOrigins: string[], repository: RoomRepository,
   shared: { runtime: RedisRoomRuntime; repository: PostgresStudySessionRepository },
-  options: { production?: boolean; trustProxy?: number; healthTimeoutMs?: number } = {}) {
+  options: { production?: boolean; trustProxy?: number; healthTimeoutMs?: number; accountVerifier?: AccountVerifier } = {}) {
   const app = express();
   let draining = false;
   app.disable('x-powered-by');
@@ -72,6 +75,7 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
 
   const httpServer = createServer(app);
   const access = new RedisStatsAccess(shared.runtime);
+  app.use('/api/account/rooms', accountRoomRoutes(repository as RoomRepository & OwnedRoomRepository, options.accountVerifier));
   app.use('/api', statsRoutes(shared.repository, shared.runtime, access));
   const realtime = attachSharedRoomSockets(httpServer, allowedOrigins, repository, shared.runtime, access, {
     production: options.production, trustProxy: options.trustProxy,

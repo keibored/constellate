@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { RoomStatePayload, RoomTask } from '../../../shared/roomState.js';
-import { RoomNotFoundError, RoomStateError, type RoomMutation, type RoomRepository } from './roomRepository.js';
+import { RoomNotFoundError, RoomStateError, type OwnedRoomRepository, type OwnedRoomSummary, type RoomMutation, type RoomRepository } from './roomRepository.js';
 import { insertStudyActivity } from '../db/studyActivity.js';
 
 interface RoomRow { id: string; name: string; revision: number; created_at: Date; updated_at: Date }
@@ -12,13 +12,32 @@ interface TaskRow {
 }
 
 /** Transactions lock only their room row; full snapshots carry a durable revision. */
-export class PostgresRoomRepository implements RoomRepository {
+export class PostgresRoomRepository implements RoomRepository, OwnedRoomRepository {
   constructor(private pool: Pool) {}
 
   async health() { await this.pool.query('SELECT 1'); }
   async exists(roomId: string) { return Boolean((await this.pool.query('SELECT 1 FROM rooms WHERE id = $1', [roomId])).rowCount); }
+  async createOwned(roomId: string, ownerUserId: string, name: string): Promise<OwnedRoomSummary> {
+    const result = await this.pool.query<RoomRow & { visibility: 'public' | 'private' }>(
+      `INSERT INTO rooms(id, name, owner_user_id) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id, name, visibility, created_at, updated_at`, [roomId, name, ownerUserId]);
+    if (!result.rowCount) throw new RoomStateError('That room code is already in use. Choose another one.');
+    return this.summary(result.rows[0]);
+  }
+  async listOwned(ownerUserId: string): Promise<OwnedRoomSummary[]> {
+    const result = await this.pool.query<RoomRow & { visibility: 'public' | 'private' }>(
+      `SELECT id, name, visibility, created_at, updated_at FROM rooms
+       WHERE owner_user_id = $1 ORDER BY updated_at DESC LIMIT 50`, [ownerUserId]);
+    return result.rows.map(row => this.summary(row));
+  }
   load(roomId: string, createIfMissing = true) { return this.transaction(roomId, undefined, createIfMissing); }
   mutate(roomId: string, action: RoomMutation) { return this.transaction(roomId, action); }
+
+  private summary(row: RoomRow & { visibility: 'public' | 'private' }): OwnedRoomSummary {
+    return { id: row.id, name: row.name, visibility: row.visibility,
+      createdAt: row.created_at.getTime(), updatedAt: row.updated_at.getTime() };
+  }
 
   private async transaction(roomId: string, action?: RoomMutation, createIfMissing = false): Promise<RoomStatePayload> {
     const client = await this.pool.connect();

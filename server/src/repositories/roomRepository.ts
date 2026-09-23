@@ -14,6 +14,19 @@ export interface RoomRepository {
   exists?(roomId: string): Promise<boolean>;
 }
 
+export interface OwnedRoomSummary {
+  id: string;
+  name: string;
+  visibility: 'public' | 'private';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OwnedRoomRepository {
+  createOwned(roomId: string, ownerUserId: string, name: string): Promise<OwnedRoomSummary>;
+  listOwned(ownerUserId: string): Promise<OwnedRoomSummary[]>;
+}
+
 export class RoomStateError extends Error {}
 export class RoomNotFoundError extends RoomStateError {
   constructor() { super('This saved room no longer exists. Leave this room and choose another.'); }
