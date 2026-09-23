@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MemberPresence, PresenceJoined, PresenceLeft, PresenceList, PresenceStatus, PresenceUpdated, RoomError } from '../../../../shared/presence';
 import { logRoomEvent, roomSocket } from '../../services/socket';
 import { connectRoom, type ConnectionStatus } from '../../services/roomConnection';
+import { prewarmBackend } from '../../services/backendWarmup';
 import type { LocalIdentity } from './localIdentity';
 import { forgetRoom, getLastRoom, getRoomStatus, rememberRoom, rememberStatus } from './localSession';
 
@@ -98,6 +99,7 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
       restore: getLastRoom() === roomId,
       joined: () => rememberRoom(roomId),
       missing: () => setMembers([]),
+      beforeConnect: import.meta.env.PROD ? prewarmBackend : undefined,
     });
     reconnectRef.current = subscription.retry;
     leaveRef.current = subscription.leave;

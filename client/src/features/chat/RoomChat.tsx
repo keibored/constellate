@@ -22,7 +22,7 @@ export function RoomChat({ roomId, currentUserId, connection }: RoomChatProps) {
     const submitted = draft;
     if (await sendMessage(submitted)) setDraft(current => current === submitted ? '' : current);
   };
-  const note = error ?? (!ready ? connection === 'reconnecting' ? 'Reconnecting to chat…' : 'Join the room to say hello.' : 'a little company, a few words');
+  const note = error ?? (!ready ? connection === 'waking' ? 'Waking up the study room…' : connection === 'reconnecting' ? 'Reconnecting to chat…' : 'Join the room to say hello.' : 'a little company, a few words');
 
   return (
     <section className="sidebar-panel room-chat" aria-labelledby="chat-heading">

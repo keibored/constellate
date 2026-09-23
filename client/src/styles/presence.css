@@ -16,6 +16,7 @@
 .presence-empty { font-size: 12px; color: var(--muted); line-height: 1.7; padding: 12px 0; }
 .presence-connection { overflow-wrap: anywhere; }
 .presence-connection[data-connection='error'] { color: #eab1bd; }
+.presence-connection[data-connection='waking'],
 .presence-connection[data-connection='reconnecting'] { color: #e3c28f; }
 .member-details { min-width: 0; }
 .member-name > span:first-child { overflow-wrap: anywhere; min-width: 0; }
