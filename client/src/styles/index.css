@@ -52,6 +52,40 @@ button svg { flex-shrink: 0; }
 .not-found { min-height: 100vh; display: flex; gap: 24px; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
 .not-found h1 { font-size: 24px; }
 
+/* v2 account and room discovery surfaces */
+.product-page { min-height: 100vh; padding: 28px clamp(20px, 5vw, 72px) 64px; background: radial-gradient(circle at 72% 12%, #694b6e44, transparent 32%), radial-gradient(circle at 18% 75%, #4b597844, transparent 30%), var(--page); }
+.product-nav { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.product-nav nav { display: flex; align-items: center; gap: 14px; }
+.product-brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 20px; font-weight: 700; }
+.product-brand .brand-star { font-size: 29px; }
+.secondary-button, .text-button, .guest-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #735e7d; border-radius: 5px; background: #3b3045; color: #eadbea; padding: 9px 14px; font-size: 13px; }
+.text-button, .guest-link { border: 0; background: transparent; color: #cfb6d7; width: 100%; }
+.account-label { color: var(--muted); font-size: 12px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.dashboard-hero { max-width: 760px; margin: 100px auto 54px; text-align: center; }
+.dashboard-hero .eyebrow { justify-content: center; }
+.dashboard-hero h1 { font-family: var(--mono); font-size: clamp(32px, 6vw, 61px); line-height: 1.08; letter-spacing: -3px; color: #f0dfe9; margin: 14px 0 20px; }
+.dashboard-hero > p:last-child, .product-copy { color: var(--muted); line-height: 1.7; }
+.dashboard-grid { max-width: 880px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.product-card { background: linear-gradient(145deg, #563f5338, transparent 65%), #302b3bee; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 18px 50px #11152544; }
+.action-card { padding: 28px; }
+.action-card > svg { color: #d9b9d2; }
+.action-card h2, .recent-room h2 { font-family: var(--mono); margin: 18px 0 8px; }
+.action-card p, .recent-room p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.dashboard-join { display: flex; gap: 8px; margin-top: 22px; }
+.dashboard-join input { flex: 1; width: 100%; }
+.recent-room { max-width: 880px; margin: 20px auto 0; padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.recent-room .eyebrow, .recent-room h2, .recent-room p { margin: 0 0 4px; }
+.dashboard-note { text-align: center; color: var(--muted); font-size: 12px; margin: 26px auto 0; }
+.auth-card { width: min(440px, 100%); margin: 7vh auto 0; padding: 34px; }
+.auth-card > .product-brand { margin-bottom: 36px; }
+.auth-card h1 { font-family: var(--mono); font-size: 30px; margin: 10px 0; }
+.auth-form { display: grid; gap: 9px; margin-top: 28px; }
+.auth-form label { color: #d8c7dc; font-size: 12px; margin-top: 6px; }
+.auth-form input { width: 100%; padding: 11px; }
+.auth-form .primary-button { margin-top: 12px; }
+.product-notice { border: 1px solid #8d715c; background: #5b47342c; color: #e4c9ad; border-radius: 6px; padding: 11px; font-size: 12px; }
+@media (max-width: 680px) { .dashboard-grid { grid-template-columns: 1fr; } .dashboard-hero { margin-top: 70px; } .product-nav { align-items: flex-start; } .product-nav nav { flex-direction: column; align-items: flex-end; } .account-label { max-width: 150px; } }
+
 /* Application frame */
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .navbar { display: flex; align-items: center; gap: 36px; height: 83px; flex-shrink: 0; padding: 0 34px; background: #252333; border-bottom: 1px solid #51425280; }

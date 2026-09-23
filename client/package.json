@@ -10,6 +10,7 @@
     "preview": "vite --host 0.0.0.0 preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
     "lucide-react": "^0.468.0",
