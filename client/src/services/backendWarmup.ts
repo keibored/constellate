@@ -27,7 +27,7 @@ export async function waitForBackend(options: BackendWarmupOptions = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
-      const response = await fetcher('/api/health', {
+      const response = await fetcher(apiUrl('/api/health'), {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
         signal: controller.signal,
@@ -54,3 +54,4 @@ export function prewarmBackend() {
   warmup ??= waitForBackend().finally(() => { warmup = undefined; });
   return warmup;
 }
+import { apiUrl } from './api';
