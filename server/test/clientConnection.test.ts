@@ -64,6 +64,41 @@ test('the client joins once per connection and waits for acknowledgement before 
   for (const event of ['connected', 'disconnected', 'reconnecting', 'joined room']) assert.ok(f.logs.includes(event));
 });
 
+test('the client shows a waking state and waits for backend readiness before opening Socket.IO', async t => {
+  const socket = new FakeSocket();
+  const connections: ConnectionStatus[] = [];
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  const subscription = connectRoom(socket as unknown as RoomSocket, 'demo', { id: 'test-user-kei', nickname: 'kei', avatar: 'dark' }, {
+    connection: status => connections.push(status), error: () => {}, disconnected: () => {}, beforeConnect: () => ready,
+  });
+  t.after(() => subscription.dispose());
+  assert.equal(connections.at(-1), 'waking');
+  assert.equal(socket.connects, 0);
+  assert.equal(socket.sent.length, 0);
+  release();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(socket.connects, 1);
+  assert.equal(socket.sent.length, 1);
+  assert.equal(connections.at(-1), 'connecting');
+});
+
+test('disposing during backend warm-up cannot create a stale connection', async () => {
+  const socket = new FakeSocket();
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  const subscription = connectRoom(socket as unknown as RoomSocket, 'demo', { id: 'test-user-kei', nickname: 'kei', avatar: 'dark' }, {
+    connection: () => {}, error: () => {}, disconnected: () => {}, beforeConnect: () => ready,
+  });
+  subscription.dispose();
+  release();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(socket.connects, 0);
+  assert.equal(socket.sent.length, 0);
+});
+
 test('join acknowledgement timeouts retry three times on one transport, then stop until explicitly retried', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(t);

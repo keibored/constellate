@@ -1,7 +1,7 @@
 import type { PresenceStatus, RoomError, RoomUser } from '../../../shared/presence';
 import type { RoomSocket } from './socket';
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+export type ConnectionStatus = 'idle' | 'waking' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 const JOIN_ATTEMPTS = 3;
 
 interface RoomConnectionHandlers {
@@ -13,6 +13,7 @@ interface RoomConnectionHandlers {
   joined?: () => void;
   missing?: () => void;
   restore?: boolean;
+  beforeConnect?: () => Promise<unknown>;
 }
 
 /** Owns one room subscription; bounds silent timeouts and retries known transient failures. */
@@ -22,6 +23,7 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
   let joinAttempts = 0;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let restoring = handlers.restore ?? false;
+  let startGeneration = 0;
   const log = handlers.log ?? (() => {});
   const cancelJoin = () => {
     generation++;
@@ -103,12 +105,23 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
   socket.on('room:error', onRoomError);
   socket.io.on('reconnect_attempt', onReconnecting);
   socket.io.on('reconnect_failed', onReconnectFailed);
-  handlers.connection('connecting');
-  if (socket.connected) onConnect();
-  else socket.connect();
+  const start = async () => {
+    const request = ++startGeneration;
+    if (handlers.beforeConnect) {
+      handlers.connection('waking');
+      handlers.error(null);
+      try { await handlers.beforeConnect(); } catch { /* Socket.IO remains the fallback. */ }
+    }
+    if (!active || request !== startGeneration) return;
+    handlers.connection('connecting');
+    if (socket.connected) onConnect();
+    else socket.connect();
+  };
+  void start();
 
   const detach = () => {
     active = false;
+    startGeneration++;
     cancelJoin();
     socket.off('connect', onConnect);
     socket.off('disconnect', onDisconnect);
@@ -123,9 +136,7 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
       cancelJoin();
       joinAttempts = 0;
       handlers.error(null);
-      handlers.connection('connecting');
-      if (socket.connected) join();
-      else socket.connect();
+      void start();
     },
     async leave() {
       if (!active) return;

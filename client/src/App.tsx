@@ -1,5 +1,9 @@
 import { RoomPage } from './features/room/RoomPage';
 import { RoomLobby } from './features/room/RoomLobby';
+import { prewarmBackend } from './services/backendWarmup';
+
+// Start waking Render while a visitor reads the page or enters a nickname.
+if (import.meta.env.PROD) void prewarmBackend();
 
 function App() {
   const path = window.location.pathname.replace(/\/$/, '') || '/';

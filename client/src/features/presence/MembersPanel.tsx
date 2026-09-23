@@ -19,7 +19,7 @@ interface MembersPanelProps {
 }
 
 export function MembersPanel({ members, currentUserId, connection, error, statusError, onStatusChange, onInvite, onReconnect, voice }: MembersPanelProps) {
-  const message = error ?? (connection === 'connecting' ? 'Joining the room…' : connection === 'reconnecting' ? 'Reconnecting… keeping your place.' : '');
+  const message = error ?? (connection === 'waking' ? 'Waking up the study room…' : connection === 'connecting' ? 'Joining the room…' : connection === 'reconnecting' ? 'Reconnecting… keeping your place.' : '');
   return (
     <section className="sidebar-panel members-panel" id="members" aria-labelledby="members-heading">
       <div className="panel-heading"><h2 id="members-heading"><Users size={16} />Members <span className="count-badge">{members.length}</span></h2><span className="panel-sparkle" aria-hidden="true">✧</span></div>
