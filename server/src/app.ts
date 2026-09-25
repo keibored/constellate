@@ -48,7 +48,7 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
     }
     next();
   });
-  app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'], maxAge: 600 }));
+  app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'], maxAge: 600 }));
   app.use(express.json({ limit: '16kb' }));
   // Share in-flight checks so probe bursts do not exhaust the pool during outages.
   let checking: Promise<readonly ['ok' | 'unavailable', 'ok' | 'unavailable']> | undefined;
@@ -78,7 +78,7 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
   app.use('/api/account/rooms', accountRoomRoutes(repository as RoomRepository & OwnedRoomRepository, options.accountVerifier));
   app.use('/api', statsRoutes(shared.repository, shared.runtime, access));
   const realtime = attachSharedRoomSockets(httpServer, allowedOrigins, repository, shared.runtime, access, {
-    production: options.production, trustProxy: options.trustProxy,
+    production: options.production, trustProxy: options.trustProxy, accountVerifier: options.accountVerifier,
   });
   app.use((_request, response) => { response.status(404).json({ error: 'Not found.' }); });
   const handleError: ErrorRequestHandler = (error, _request, response, _next) => {

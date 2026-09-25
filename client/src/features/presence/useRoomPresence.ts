@@ -5,6 +5,7 @@ import { connectRoom, type ConnectionStatus } from '../../services/roomConnectio
 import { prewarmBackend } from '../../services/backendWarmup';
 import type { LocalIdentity } from './localIdentity';
 import { forgetRoom, getLastRoom, getRoomStatus, rememberRoom, rememberStatus } from './localSession';
+import { useAuth } from '../auth/AuthProvider';
 
 export type { ConnectionStatus } from '../../services/roomConnection';
 
@@ -13,6 +14,7 @@ function ordered(members: MemberPresence[]) {
 }
 
 export function useRoomPresence(roomId: string, identity: LocalIdentity | null) {
+  const { session } = useAuth();
   const [members, setMembers] = useState<MemberPresence[]>([]);
   const [connection, setConnection] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +100,10 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
       savedStatus: () => getRoomStatus(userId, roomId),
       restore: getLastRoom() === roomId,
       joined: () => rememberRoom(roomId),
+      credentials: () => {
+        const inviteToken = new URLSearchParams(window.location.search).get('invite') ?? undefined;
+        return { ...(session ? { accountToken: session.access_token } : {}), ...(inviteToken ? { inviteToken } : {}) };
+      },
       missing: () => setMembers([]),
       beforeConnect: import.meta.env.PROD ? prewarmBackend : undefined,
     });

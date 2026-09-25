@@ -25,6 +25,9 @@ export interface OwnedRoomSummary {
 export interface OwnedRoomRepository {
   createOwned(roomId: string, ownerUserId: string, name: string): Promise<OwnedRoomSummary>;
   listOwned(ownerUserId: string): Promise<OwnedRoomSummary[]>;
+  setVisibility(roomId: string, ownerUserId: string, visibility: 'public' | 'private'): Promise<OwnedRoomSummary>;
+  setInviteToken(roomId: string, ownerUserId: string, tokenHash: string): Promise<void>;
+  roomAccess(roomId: string): Promise<{ ownerUserId: string | null; visibility: 'public' | 'private'; inviteTokenHash: string | null } | null>;
 }
 
 export class RoomStateError extends Error {}

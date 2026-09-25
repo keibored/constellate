@@ -14,6 +14,7 @@ interface RoomConnectionHandlers {
   missing?: () => void;
   restore?: boolean;
   beforeConnect?: () => Promise<unknown>;
+  credentials?: () => { accountToken?: string; inviteToken?: string };
 }
 
 /** Owns one room subscription; bounds silent timeouts and retries known transient failures. */
@@ -40,8 +41,11 @@ export function connectRoom(socket: RoomSocket, roomId: string, user: RoomUser, 
     joinAttempts++;
     handlers.connection(joinAttempts === 1 ? 'connecting' : 'reconnecting');
     handlers.error(null);
+    const credentials = handlers.credentials?.() ?? {};
+    if (!active || request !== generation || !socket.connected) return;
     socket.timeout(5_000).emit('room:join', {
       roomId, user, ...(handlers.savedStatus ? { status: handlers.savedStatus() } : {}), ...(restoring ? { restore: true } : {}),
+      ...credentials,
     }, (timeoutError: Error | null, result) => {
       if (!active || request !== generation || !socket.connected) return;
       if (timeoutError) {

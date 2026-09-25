@@ -27,3 +27,15 @@ export async function listAccountRooms() {
 export async function createAccountRoom(name: string) {
   return (await request('/api/account/rooms', { method: 'POST', body: JSON.stringify({ name }) }) as { room: AccountRoom }).room;
 }
+
+export async function setAccountRoomVisibility(roomId: string, visibility: AccountRoom['visibility']) {
+  return (await request(`/api/account/rooms/${encodeURIComponent(roomId)}`, {
+    method: 'PATCH', body: JSON.stringify({ visibility }),
+  }) as { room: AccountRoom }).room;
+}
+
+export async function createAccountRoomInvite(roomId: string) {
+  return (await request(`/api/account/rooms/${encodeURIComponent(roomId)}/invite`, {
+    method: 'POST',
+  }) as { token: string }).token;
+}

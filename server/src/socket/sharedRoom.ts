@@ -13,11 +13,14 @@ import { RuntimeUnavailableError } from '../redis/connection.js';
 import { databaseErrorCode } from '../db/pool.js';
 import { log } from '../logger.js';
 import { RedisRateLimiter, requestRateKey } from '../security/rateLimit.js';
+import { createHash } from 'node:crypto';
+import type { OwnedRoomRepository } from '../repositories/roomRepository.js';
+import type { AccountVerifier } from '../services/supabaseAuth.js';
 
 interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string; clientKey?: string }
 const channel = (roomId: string) => `room:${roomId}`;
 
-export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess, options: { production?: boolean; trustProxy?: number } = {}) {
+export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: string[], repository: RoomRepository, runtime: RedisRoomRuntime, access: RedisStatsAccess, options: { production?: boolean; trustProxy?: number; accountVerifier?: AccountVerifier } = {}) {
   let draining = false;
   const rateLimiter = new RedisRateLimiter(runtime.redis);
   const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(httpServer, {
@@ -99,6 +102,21 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       schedule(async () => {
         if (!socket.connected) return;
         runtime.redis.requireReady();
+        const accessRepository = repository as RoomRepository & Partial<OwnedRoomRepository>;
+        const roomAccess = accessRepository.roomAccess ? await accessRepository.roomAccess(join.roomId) : null;
+        if (roomAccess?.visibility === 'private') {
+          const raw = payload as { accountToken?: unknown; inviteToken?: unknown };
+          const account = typeof raw.accountToken === 'string' && options.accountVerifier
+            ? await options.accountVerifier.verify(raw.accountToken) : null;
+          const inviteHash = typeof raw.inviteToken === 'string' && raw.inviteToken.length <= 256
+            ? createHash('sha256').update(raw.inviteToken).digest('hex') : null;
+          const allowed = account?.id === roomAccess.ownerUserId
+            || Boolean(inviteHash && roomAccess.inviteTokenHash === inviteHash);
+          if (!allowed) {
+            if (typeof acknowledge === 'function') acknowledge({ ok: false, code: 'ROOM_FORBIDDEN', error: 'This room is private. Ask its owner for a new invitation link.' });
+            return;
+          }
+        }
         const clientKey = socket.data.clientKey!;
         if (!await rateLimiter.allow('room-join', clientKey, 30, 60_000)) {
           fail('Too many room changes. Wait a minute and try again.', acknowledge); return;
