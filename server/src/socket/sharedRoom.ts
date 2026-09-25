@@ -16,6 +16,7 @@ import { RedisRateLimiter, requestRateKey } from '../security/rateLimit.js';
 import { createHash } from 'node:crypto';
 import type { OwnedRoomRepository } from '../repositories/roomRepository.js';
 import type { AccountVerifier } from '../services/supabaseAuth.js';
+import { verifyAccountPresence } from '../services/accountPresence.js';
 
 interface SocketData { membership?: { roomId: string; userId: string }; statsToken?: string; clientKey?: string }
 const channel = (roomId: string) => `room:${roomId}`;
@@ -102,12 +103,16 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       schedule(async () => {
         if (!socket.connected) return;
         runtime.redis.requireReady();
+        const raw = payload as { accountToken?: unknown; inviteToken?: unknown };
+        const identity = await verifyAccountPresence(join.user.id, raw.accountToken, options.accountVerifier);
+        const account = identity.account;
+        if (!identity.valid) {
+          if (typeof acknowledge === 'function') acknowledge({ ok: false, code: 'ROOM_FORBIDDEN', error: 'Your signed-in identity could not be verified. Sign in again and retry.' });
+          return;
+        }
         const accessRepository = repository as RoomRepository & Partial<OwnedRoomRepository>;
         const roomAccess = accessRepository.roomAccess ? await accessRepository.roomAccess(join.roomId) : null;
         if (roomAccess?.visibility === 'private') {
-          const raw = payload as { accountToken?: unknown; inviteToken?: unknown };
-          const account = typeof raw.accountToken === 'string' && options.accountVerifier
-            ? await options.accountVerifier.verify(raw.accountToken) : null;
           const inviteHash = typeof raw.inviteToken === 'string' && raw.inviteToken.length <= 256
             ? createHash('sha256').update(raw.inviteToken).digest('hex') : null;
           const allowed = account?.id === roomAccess.ownerUserId

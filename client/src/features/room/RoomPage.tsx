@@ -32,8 +32,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
       document.getElementById(window.location.hash.slice(1))?.scrollIntoView();
     }
   }, [statsOpen]);
-  const { members, connection, error, reconnect, leave, updateStatus, statusError } = useRoomPresence(roomId, identity);
-  const voice = useVoiceRoom(roomId, identity?.userId, connection);
+  const { members, connection, error, reconnect, leave, updateStatus, statusError, currentUserId } = useRoomPresence(roomId, identity);
+  const voice = useVoiceRoom(roomId, currentUserId, connection);
   const [leaving, setLeaving] = useState(false);
   const leaveRoom = async () => {
     if (leaving) return;
@@ -66,7 +66,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
           <RoomScene members={members}><RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} /></RoomScene>
           <div className="room-bottom-caption"><span><span className="status-dot status-dot--coding" />a little company goes a long way</span><span>same stars, different desks <span aria-hidden="true">✦</span></span></div>
         </div>
-        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel voice={voice} members={members} currentUserId={identity?.userId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={identity?.userId} connection={connection} /><ReactionsPanel key={roomId} roomId={roomId} connection={connection} /><EncouragementCard /></aside>
+        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={currentUserId} connection={connection} /><ReactionsPanel key={roomId} roomId={roomId} connection={connection} /><EncouragementCard /></aside>
       </main>
       {statsOpen && <StatsView key={roomId} roomId={roomId} connection={connection} />}
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>

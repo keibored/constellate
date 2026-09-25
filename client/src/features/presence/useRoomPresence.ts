@@ -3,7 +3,7 @@ import type { MemberPresence, PresenceJoined, PresenceLeft, PresenceList, Presen
 import { logRoomEvent, roomSocket } from '../../services/socket';
 import { connectRoom, type ConnectionStatus } from '../../services/roomConnection';
 import { prewarmBackend } from '../../services/backendWarmup';
-import type { LocalIdentity } from './localIdentity';
+import { accountPresenceId, type LocalIdentity } from './localIdentity';
 import { forgetRoom, getLastRoom, getRoomStatus, rememberRoom, rememberStatus } from './localSession';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -15,6 +15,9 @@ function ordered(members: MemberPresence[]) {
 
 export function useRoomPresence(roomId: string, identity: LocalIdentity | null) {
   const { session } = useAuth();
+  const accountId = session?.user.id;
+  const accountToken = session?.access_token;
+  const currentUserId = accountId ? accountPresenceId(accountId) : identity?.userId;
   const [members, setMembers] = useState<MemberPresence[]>([]);
   const [connection, setConnection] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -32,11 +35,11 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
 
   const updateStatus = useCallback((status: PresenceStatus) => {
     // Status choices are never queued offline and replayed over newer server state.
-    if (!identity || connection !== 'connected' || !roomSocket.connected) return;
+    if (!identity || !currentUserId || connection !== 'connected' || !roomSocket.connected) return;
     const request = ++statusRequest.current;
     setStatusError(null);
-    setPendingStatus({ roomId, userId: identity.userId, status });
-    roomSocket.timeout(5_000).emit('status:update', { roomId, userId: identity.userId, status }, (timeoutError: Error | null, result) => {
+    setPendingStatus({ roomId, userId: currentUserId, status });
+    roomSocket.timeout(5_000).emit('status:update', { roomId, userId: currentUserId, status }, (timeoutError: Error | null, result) => {
       if (request !== statusRequest.current || !roomSocket.connected) return;
       // The broadcast updates authoritative members before the success acknowledgement.
       // Removing the overlay also rolls back a rejected choice to the latest server state.
@@ -48,7 +51,7 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
         setStatusError(result?.ok ? null : result?.error ?? 'Your status could not be changed. Try again.');
       }
     });
-  }, [roomId, identity, connection]);
+  }, [roomId, identity, currentUserId, connection]);
 
   useEffect(() => {
     const clearPendingStatus = () => { statusRequest.current++; setPendingStatus(null); };
@@ -57,7 +60,8 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
     setError(null);
     setStatusError(null);
     if (!identity) { setConnection('idle'); return; }
-    const { userId, nickname, avatar } = identity;
+    const { nickname, avatar } = identity;
+    const userId = accountId ? accountPresenceId(accountId) : identity.userId;
     let latestPresence: { epoch: string; revision: number } | null = null;
     const saveOwnStatus = (member?: MemberPresence) => {
       if (member?.userId === userId) rememberStatus(userId, roomId, member.status);
@@ -102,7 +106,7 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
       joined: () => rememberRoom(roomId),
       credentials: () => {
         const inviteToken = new URLSearchParams(window.location.search).get('invite') ?? undefined;
-        return { ...(session ? { accountToken: session.access_token } : {}), ...(inviteToken ? { inviteToken } : {}) };
+        return { ...(accountToken ? { accountToken } : {}), ...(inviteToken ? { inviteToken } : {}) };
       },
       missing: () => setMembers([]),
       beforeConnect: import.meta.env.PROD ? prewarmBackend : undefined,
@@ -121,10 +125,10 @@ export function useRoomPresence(roomId: string, identity: LocalIdentity | null) 
       roomSocket.off('room:error', onRoomError);
       subscription.dispose();
     };
-  }, [roomId, identity]);
+  }, [roomId, identity, accountId, accountToken]);
 
   const displayedMembers = pendingStatus?.roomId === roomId
     ? members.map(member => member.userId === pendingStatus.userId ? { ...member, status: pendingStatus.status } : member)
     : members;
-  return { members: displayedMembers, connection, error, reconnect, leave, updateStatus, statusError };
+  return { members: displayedMembers, connection, error, reconnect, leave, updateStatus, statusError, currentUserId };
 }

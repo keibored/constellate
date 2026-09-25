@@ -11,6 +11,10 @@ export const IDENTITY_STORAGE_KEY = 'constellate.identity';
 export const USER_ID_STORAGE_KEY = 'constellate_user_id';
 const isUserId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_-]{8,64}$/.test(value);
 
+export function accountPresenceId(accountId: string) {
+  return `account_${accountId.replace(/-/g, '').toLowerCase()}`;
+}
+
 export function getGuestUserId(): string {
   let previous: unknown;
   try { previous = JSON.parse(guestStorage.get(IDENTITY_STORAGE_KEY) ?? 'null')?.userId; }
