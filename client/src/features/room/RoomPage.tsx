@@ -18,9 +18,34 @@ import { RoomSettings } from './RoomSettings';
 import { StatsView } from '../stats/StatsView';
 import { useVoiceRoom } from '../voice/useVoiceRoom';
 import '../../styles/voice.css';
+import { useAuth } from '../auth/AuthProvider';
+import { getAccountProfile, saveAccountProfile } from '../../services/accountProfile';
+import { saveLocalIdentity } from '../presence/localIdentity';
+import type { AvatarId } from '../../../../shared/presence';
 
 export function RoomPage({ roomId }: { roomId: string }) {
-  const [identity, setIdentity] = useState(getLocalIdentity);
+  const { session, loading: authLoading } = useAuth();
+  const [identity, setIdentity] = useState<ReturnType<typeof getLocalIdentity>>(null);
+  const [identityLoading, setIdentityLoading] = useState(true);
+  useEffect(() => {
+    if (authLoading) return;
+    let active = true;
+    setIdentityLoading(true); setIdentity(null);
+    if (!session) {
+      setIdentity(getLocalIdentity()); setIdentityLoading(false);
+      return () => { active = false; };
+    }
+    void getAccountProfile().then(profile => {
+      if (active) setIdentity(profile ? { userId: session.user.id, nickname: profile.nickname, avatar: profile.avatar } : null);
+    }).catch(() => { if (active) setIdentity(null); }).finally(() => { if (active) setIdentityLoading(false); });
+    return () => { active = false; };
+  }, [authLoading, session?.user.id]);
+  const saveProfile = async (nickname: string, avatar: AvatarId) => {
+    if (session) {
+      const profile = await saveAccountProfile(nickname, avatar);
+      setIdentity({ userId: session.user.id, nickname: profile.nickname, avatar: profile.avatar });
+    } else setIdentity(saveLocalIdentity(nickname, avatar));
+  };
   const [statsOpen, setStatsOpen] = useState(() => window.location.hash === '#stats');
   useEffect(() => {
     const navigate = () => { setStatsOpen(window.location.hash === '#stats'); };
@@ -70,8 +95,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
       </main>
       {statsOpen && <StatsView key={roomId} roomId={roomId} connection={connection} />}
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>
-      <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} />
-      {!identity && <JoinRoomDialog roomName={room.name} onJoin={setIdentity} />}
+      <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} identity={identity} accountProfile={Boolean(session)} onProfileSave={saveProfile} />
+      {!identityLoading && !identity && <JoinRoomDialog roomName={room.name} account={Boolean(session)} onJoin={saveProfile} />}
       {copied && <div className="toast" role="status"><Check size={17} />Room link copied</div>}
       {copyFallback && <div className="copy-fallback" role="status"><label htmlFor="room-link"><Copy size={16} />Copy this room link</label><input id="room-link" readOnly value={roomUrl} onFocus={(event) => event.target.select()} /><button className="icon-button" aria-label="Close room link" onClick={() => setCopyFallback(false)}><X size={16} /></button></div>}
     </div>
