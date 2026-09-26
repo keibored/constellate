@@ -12,6 +12,8 @@ import { log } from './logger.js';
 import { accountRoomRoutes } from './routes/accountRooms.js';
 import type { OwnedRoomRepository } from './repositories/roomRepository.js';
 import type { AccountVerifier } from './services/supabaseAuth.js';
+import { accountProfileRoutes } from './routes/accountProfile.js';
+import type { AccountProfileRepository } from './repositories/roomRepository.js';
 
 export async function boundedHealth(check: () => Promise<unknown>, timeoutMs: number) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -48,7 +50,7 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
     }
     next();
   });
-  app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'], maxAge: 600 }));
+  app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'], maxAge: 600 }));
   app.use(express.json({ limit: '16kb' }));
   // Share in-flight checks so probe bursts do not exhaust the pool during outages.
   let checking: Promise<readonly ['ok' | 'unavailable', 'ok' | 'unavailable']> | undefined;
@@ -75,6 +77,7 @@ export function createAppServer(allowedOrigins: string[], repository: RoomReposi
 
   const httpServer = createServer(app);
   const access = new RedisStatsAccess(shared.runtime);
+  app.use('/api/account/profile', accountProfileRoutes(repository as RoomRepository & AccountProfileRepository, options.accountVerifier));
   app.use('/api/account/rooms', accountRoomRoutes(repository as RoomRepository & OwnedRoomRepository, options.accountVerifier));
   app.use('/api', statsRoutes(shared.repository, shared.runtime, access));
   const realtime = attachSharedRoomSockets(httpServer, allowedOrigins, repository, shared.runtime, access, {
