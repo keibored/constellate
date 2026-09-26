@@ -57,9 +57,16 @@ test('SQL migrations are repeatable; room transactions persist metadata/tasks, s
     '003_study_sessions.sql',
     '004_owned_rooms.sql',
     '005_private_room_invites.sql',
+    '006_account_profiles.sql',
   ]);
   assert.deepEqual(await migrate(f.pool), []);
   await assertMigrationsCurrent(f.pool);
+  const profile = await f.repository.saveProfile('11111111-1111-4111-8111-111111111111', ' kei ', 'pink');
+  assert.equal(profile.nickname, ' kei ');
+  assert.deepEqual(await f.repository.getProfile('11111111-1111-4111-8111-111111111111'), profile);
+  const updatedProfile = await f.repository.saveProfile('11111111-1111-4111-8111-111111111111', 'kei', 'green');
+  assert.deepEqual({ nickname: updatedProfile.nickname, avatar: updatedProfile.avatar }, { nickname: 'kei', avatar: 'green' });
+  assert.equal(await f.repository.getProfile('22222222-2222-4222-8222-222222222222'), null);
   assert.equal((await f.repository.load('demo')).room.name, 'Late night grind');
   const operation = { kind: 'create' as const, title: "Review SQL '; DROP TABLE rooms; --", requestId: randomUUID(), creator: kei };
   const first = await f.repository.mutate('demo', operation);

@@ -245,6 +245,9 @@ button svg { flex-shrink: 0; }
 .motion-setting small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
 .motion-setting input { width: 18px; height: 18px; }
 .settings-done { margin-top: 27px; width: 100%; }
+.profile-avatar-options { display: flex; gap: 10px; margin: 10px 0 0; }
+.profile-avatar { border: 1px solid var(--border); border-radius: 10px; background: #30283b; padding: 5px; cursor: pointer; opacity: .65; }
+.profile-avatar--selected { border-color: var(--pink); box-shadow: 0 0 0 2px #d8aebc40; opacity: 1; }
 .toast, .copy-fallback { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 10px; padding: 14px 20px; background: #4a3c53; border: 1px solid #a286ae; border-radius: 7px; box-shadow: 0 6px 30px #17101f70; font-size: 13px; }
 .toast { white-space: nowrap; }
 .toast svg { color: #b9d2a8; }

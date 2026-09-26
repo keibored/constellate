@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { RoomStatePayload, RoomTask } from '../../../shared/roomState.js';
-import { RoomNotFoundError, RoomStateError, type OwnedRoomRepository, type OwnedRoomSummary, type RoomMutation, type RoomRepository } from './roomRepository.js';
+import { RoomNotFoundError, RoomStateError, type AccountProfile, type AccountProfileRepository, type OwnedRoomRepository, type OwnedRoomSummary, type RoomMutation, type RoomRepository } from './roomRepository.js';
 import { insertStudyActivity } from '../db/studyActivity.js';
 
 interface RoomRow { id: string; name: string; revision: number; created_at: Date; updated_at: Date }
@@ -12,11 +12,26 @@ interface TaskRow {
 }
 
 /** Transactions lock only their room row; full snapshots carry a durable revision. */
-export class PostgresRoomRepository implements RoomRepository, OwnedRoomRepository {
+export class PostgresRoomRepository implements RoomRepository, OwnedRoomRepository, AccountProfileRepository {
   constructor(private pool: Pool) {}
 
   async health() { await this.pool.query('SELECT 1'); }
   async exists(roomId: string) { return Boolean((await this.pool.query('SELECT 1 FROM rooms WHERE id = $1', [roomId])).rowCount); }
+  async getProfile(userId: string): Promise<AccountProfile | null> {
+    const result = await this.pool.query<{ nickname: string; avatar: AccountProfile['avatar']; updated_at: Date }>(
+      'SELECT nickname, avatar, updated_at FROM account_profiles WHERE user_id = $1', [userId]);
+    const row = result.rows[0];
+    return row ? { nickname: row.nickname, avatar: row.avatar, updatedAt: row.updated_at.getTime() } : null;
+  }
+  async saveProfile(userId: string, nickname: string, avatar: AccountProfile['avatar']): Promise<AccountProfile> {
+    const result = await this.pool.query<{ nickname: string; avatar: AccountProfile['avatar']; updated_at: Date }>(
+      `INSERT INTO account_profiles(user_id, nickname, avatar) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET nickname = EXCLUDED.nickname, avatar = EXCLUDED.avatar,
+         updated_at = clock_timestamp()
+       RETURNING nickname, avatar, updated_at`, [userId, nickname, avatar]);
+    const row = result.rows[0];
+    return { nickname: row.nickname, avatar: row.avatar, updatedAt: row.updated_at.getTime() };
+  }
   async createOwned(roomId: string, ownerUserId: string, name: string): Promise<OwnedRoomSummary> {
     const result = await this.pool.query<RoomRow & { visibility: 'public' | 'private' }>(
       `INSERT INTO rooms(id, name, owner_user_id) VALUES ($1, $2, $3)
