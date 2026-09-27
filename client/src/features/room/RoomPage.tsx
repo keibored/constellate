@@ -22,24 +22,29 @@ import { useAuth } from '../auth/AuthProvider';
 import { getAccountProfile, saveAccountProfile } from '../../services/accountProfile';
 import { saveLocalIdentity } from '../presence/localIdentity';
 import type { AvatarId } from '../../../../shared/presence';
+import { AccountProfileGate } from '../presence/AccountProfileGate';
 
 export function RoomPage({ roomId }: { roomId: string }) {
   const { session, loading: authLoading } = useAuth();
   const [identity, setIdentity] = useState<ReturnType<typeof getLocalIdentity>>(null);
   const [identityLoading, setIdentityLoading] = useState(true);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [profileAttempt, setProfileAttempt] = useState(0);
   useEffect(() => {
     if (authLoading) return;
     let active = true;
-    setIdentityLoading(true); setIdentity(null);
+    setIdentityLoading(true); setIdentityError(null); setIdentity(null);
     if (!session) {
       setIdentity(getLocalIdentity()); setIdentityLoading(false);
       return () => { active = false; };
     }
     void getAccountProfile().then(profile => {
       if (active) setIdentity(profile ? { userId: session.user.id, nickname: profile.nickname, avatar: profile.avatar } : null);
-    }).catch(() => { if (active) setIdentity(null); }).finally(() => { if (active) setIdentityLoading(false); });
+    }).catch(reason => {
+      if (active) setIdentityError(reason instanceof Error ? reason.message : 'Check your connection and try again.');
+    }).finally(() => { if (active) setIdentityLoading(false); });
     return () => { active = false; };
-  }, [authLoading, session?.user.id]);
+  }, [authLoading, session?.user.id, profileAttempt]);
   const saveProfile = async (nickname: string, avatar: AvatarId) => {
     if (session) {
       const profile = await saveAccountProfile(nickname, avatar);
@@ -96,7 +101,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
       {statsOpen && <StatsView key={roomId} roomId={roomId} connection={connection} />}
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>
       <RoomSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} reducedMotion={reducedMotion} onMotionChange={setReducedMotion} identity={identity} accountProfile={Boolean(session)} onProfileSave={saveProfile} />
-      {!identityLoading && !identity && <JoinRoomDialog roomName={room.name} account={Boolean(session)} onJoin={saveProfile} />}
+      <AccountProfileGate loading={identityLoading} error={identityError} onRetry={() => setProfileAttempt(attempt => attempt + 1)} />
+      {!identityLoading && !identityError && !identity && <JoinRoomDialog roomName={room.name} account={Boolean(session)} onJoin={saveProfile} />}
       {copied && <div className="toast" role="status"><Check size={17} />Room link copied</div>}
       {copyFallback && <div className="copy-fallback" role="status"><label htmlFor="room-link"><Copy size={16} />Copy this room link</label><input id="room-link" readOnly value={roomUrl} onFocus={(event) => event.target.select()} /><button className="icon-button" aria-label="Close room link" onClick={() => setCopyFallback(false)}><X size={16} /></button></div>}
     </div>
