@@ -23,6 +23,18 @@ import { getAccountProfile, saveAccountProfile } from '../../services/accountPro
 import { saveLocalIdentity } from '../presence/localIdentity';
 import type { AvatarId } from '../../../../shared/presence';
 import { AccountProfileGate } from '../presence/AccountProfileGate';
+import { guestStorage } from '../../services/localStorage';
+
+const ROOM_PREFERENCES_KEY = 'constellate:room-preferences';
+
+function loadRoomPreferences() {
+  try {
+    const saved = JSON.parse(guestStorage.get(ROOM_PREFERENCES_KEY) ?? '{}') as { dimmed?: unknown; reducedMotion?: unknown };
+    return { dimmed: saved.dimmed === true, reducedMotion: saved.reducedMotion === true };
+  } catch {
+    return { dimmed: false, reducedMotion: false };
+  }
+}
 
 export function RoomPage({ roomId }: { roomId: string }) {
   const { session, loading: authLoading } = useAuth();
@@ -75,13 +87,17 @@ export function RoomPage({ roomId }: { roomId: string }) {
   const savedRoom = useRoomState(roomId, connection);
   const room = { ...mockRoom, id: roomId, name: savedRoom.state?.room.name ?? mockRoom.name, code: `r/${roomId}`, members };
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [dimmed, setDimmed] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [roomPreferences] = useState(loadRoomPreferences);
+  const [dimmed, setDimmed] = useState(roomPreferences.dimmed);
+  const [reducedMotion, setReducedMotion] = useState(roomPreferences.reducedMotion);
   const [copied, setCopied] = useState(false);
   const [copyFallback, setCopyFallback] = useState(false);
   const roomUrl = new URL(`/?room=${encodeURIComponent(roomId)}`, window.location.origin).href;
 
   useEffect(() => { document.title = `${room.name} · Constellate`; }, [room.name]);
+  useEffect(() => {
+    guestStorage.set(ROOM_PREFERENCES_KEY, JSON.stringify({ dimmed, reducedMotion }));
+  }, [dimmed, reducedMotion]);
   useEffect(() => { if (!copied) return; const timeout = window.setTimeout(() => setCopied(false), 3500); return () => window.clearTimeout(timeout); }, [copied]);
   const copyLink = async () => {
     try { await navigator.clipboard.writeText(roomUrl); setCopied(true); setCopyFallback(false); }
