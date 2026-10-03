@@ -29,9 +29,9 @@ services:
       - key: SHUTDOWN_TIMEOUT_MS
         value: "25000"
       - key: DATABASE_URL
-        fromDatabase:
-          name: constellate-postgres
-          property: connectionString
+        # Managed outside this Blueprint so the API is portable across PostgreSQL providers.
+        # Configure the Supabase session-pooler URL in the Render dashboard.
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -50,11 +50,4 @@ services:
     plan: free
     maxmemoryPolicy: noeviction
     persistenceMode: off
-    ipAllowList: []
-
-databases:
-  - name: constellate-postgres
-    region: singapore
-    plan: free
-    postgresMajorVersion: "18"
     ipAllowList: []
