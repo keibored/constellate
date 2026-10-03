@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /r/
+Disallow: /room/
+
+Sitemap: https://constellate-pi.vercel.app/sitemap.xml

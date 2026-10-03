@@ -1,0 +1,10 @@
+{
+  "name": "Constellate",
+  "short_name": "Constellate",
+  "description": "A cozy real-time space to study together.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1d2233",
+  "theme_color": "#292431",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

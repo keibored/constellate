@@ -8,14 +8,14 @@ export function RoomLobby() {
   return <main className="not-found">
     <span className="brand-star" aria-hidden="true">✦</span>
     <h1>Find your study room.</h1>
-    <form className="room-entry-form" onSubmit={event => {
+    <form className="room-entry-form" noValidate onSubmit={event => {
       event.preventDefault();
       const value = roomId.trim();
       if (!isRoomId(value)) { setError('Use 1–64 letters, numbers, hyphens or underscores, starting with a letter or number.'); return; }
       window.location.assign(`/?room=${encodeURIComponent(value)}`);
     }}>
       <label htmlFor="room-code">Room code</label>
-      <input id="room-code" autoFocus required maxLength={64} placeholder="demo" value={roomId} onChange={event => { setRoomId(event.target.value); setError(null); }} aria-describedby={error ? 'room-entry-error' : 'room-entry-hint'} />
+      <input id="room-code" autoFocus required autoComplete="off" spellCheck={false} pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}" maxLength={64} placeholder="demo" value={roomId} onChange={event => { setRoomId(event.target.value); setError(null); }} aria-invalid={Boolean(error)} aria-describedby={error ? 'room-entry-error' : 'room-entry-hint'} />
       <p id="room-entry-hint" className="settings-hint">Use a shared code, or choose a new one to create a room.</p>
       {error && <p id="room-entry-error" className="join-error" role="alert">{error}</p>}
       <button className="primary-button" disabled={!roomId.trim()}>Join room</button>

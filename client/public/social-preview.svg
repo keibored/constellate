@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Constellate</title><desc id="desc">A cozy shared study room under a starry night sky.</desc>
+  <defs>
+    <radialGradient id="sky" cx="75%" cy="10%" r="100%"><stop stop-color="#59445f"/><stop offset=".55" stop-color="#25283a"/><stop offset="1" stop-color="#191e2d"/></radialGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4a384b"/><stop offset="1" stop-color="#292638"/></linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#sky)"/>
+  <g fill="#ead4dc" opacity=".75"><circle cx="115" cy="105" r="4"/><circle cx="205" cy="188" r="2"/><circle cx="1018" cy="112" r="3"/><circle cx="1090" cy="210" r="2"/><path d="M945 82l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/></g>
+  <rect x="105" y="92" width="990" height="446" rx="28" fill="url(#card)" stroke="#826978" stroke-width="2"/>
+  <text x="165" y="184" fill="#dbc0df" font-family="Georgia,serif" font-size="48">✦</text>
+  <text x="222" y="180" fill="#f3e5ef" font-family="Consolas,monospace" font-size="42" font-weight="700">constellate</text>
+  <text x="165" y="278" fill="#f3e5ef" font-family="Consolas,monospace" font-size="62" font-weight="700">study together,</text>
+  <text x="165" y="350" fill="#f3e5ef" font-family="Consolas,monospace" font-size="62" font-weight="700">further.</text>
+  <text x="165" y="418" fill="#cdbdce" font-family="Arial,sans-serif" font-size="27">Focus timers · shared tasks · chat · voice · progress</text>
+  <rect x="165" y="460" width="255" height="52" rx="8" fill="#dfb8bf"/>
+  <text x="292" y="494" text-anchor="middle" fill="#3b2c40" font-family="Arial,sans-serif" font-size="20" font-weight="700">CREATE A STUDY ROOM</text>
+  <path d="M925 195a78 78 0 1 0 53 135 66 66 0 1 1-53-135z" fill="#f3d9a5"/>
+  <g fill="#d8bd83"><path d="M833 379l7 17 17 7-17 7-7 17-7-17-17-7 17-7z"/><path d="M1012 420l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/></g>
+</svg>
