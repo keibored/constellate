@@ -186,7 +186,7 @@ try {
     page.on('pageerror', error => report.errors.push(error.message));
     page.on('websocket', socket => sockets.push(socket.url()));
     await page.goto(`${frontendUrl}/r/${room}`);
-    await page.getByLabel('Nickname', { exact: true }).fill(`Deploy Check ${i + 1}`);
+    await page.locator('#join-nickname').fill(`Deploy Check ${i + 1}`);
     await page.getByRole('button', { name: 'Join room', exact: true }).click(); await connected(page);
     assert.ok(await page.evaluate(() => isSecureContext && location.protocol === 'https:' && !!navigator.mediaDevices));
     assert.equal(await page.evaluate(() => window.__productionTest.calls), 0);
@@ -203,7 +203,7 @@ try {
   fallbackPage.on('pageerror', error => report.errors.push(error.message));
   const polling = fallbackPage.waitForResponse(response => response.url().includes('transport=polling') && response.status() === 200);
   await fallbackPage.goto(`${frontendUrl}/r/${room}`);
-  await fallbackPage.getByLabel('Nickname', { exact: true }).fill('Polling Check');
+  await fallbackPage.locator('#join-nickname').fill('Polling Check');
   await fallbackPage.getByRole('button', { name: 'Join room', exact: true }).click();
   await polling;
   await connected(fallbackPage);

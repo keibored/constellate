@@ -86,7 +86,7 @@ try {
   for (const [index, page] of pages.entries()) {
     page.on('pageerror', error => report.errors.push(error.message)); page.setDefaultTimeout(15000);
     await page.goto(`${frontend}/r/startup-check`);
-    await page.getByLabel('Nickname', { exact: true }).fill(index ? 'Startup Mika' : 'Startup Kei');
+    await page.locator('#join-nickname').fill(index ? 'Startup Mika' : 'Startup Kei');
     await page.getByRole('button', { name: 'Join room', exact: true }).click();
     await page.locator('[data-connection="connected"]').waitFor();
     await page.evaluate(async () => {

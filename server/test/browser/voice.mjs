@@ -64,8 +64,9 @@ try {
   const ready = p => p.locator('[data-connection="connected"]').waitFor();
   async function join(p, origin, nickname, room = 'voice-study') {
     await p.goto(`${origin}/r/${room}`);
-    await until(async () => Boolean(await p.getByLabel('Nickname', { exact: true }).count() || await p.locator('[data-connection="connected"]').count()), 'room UI loads');
-    if (await p.getByLabel('Nickname', { exact: true }).count()) { await p.getByLabel('Nickname', { exact: true }).fill(nickname); await p.getByRole('button', { name: 'Join room', exact: true }).click(); }
+    const joinNickname = p.locator('#join-nickname');
+    await until(async () => Boolean(await joinNickname.count() || await p.locator('[data-connection="connected"]').count()), 'room UI loads');
+    if (await joinNickname.count()) { await joinNickname.fill(nickname); await p.getByRole('button', { name: 'Join room', exact: true }).click(); }
     await ready(p);
   }
   const state = p => p.evaluate(async () => {
