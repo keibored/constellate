@@ -16,19 +16,20 @@ interface MembersPanelProps {
   onInvite: () => void;
   onReconnect: () => void;
   voice?: VoiceControlsState;
+  embedded?: boolean;
 }
 
-export function MembersPanel({ members, currentUserId, connection, error, statusError, onStatusChange, onInvite, onReconnect, voice }: MembersPanelProps) {
+export function MembersPanel({ members, currentUserId, connection, error, statusError, onStatusChange, onInvite, onReconnect, voice, embedded = false }: MembersPanelProps) {
   const message = error ?? (connection === 'waking' ? 'Waking up the study room…' : connection === 'connecting' ? 'Joining the room…' : connection === 'reconnecting' ? 'Reconnecting… keeping your place.' : '');
   return (
-    <section className="sidebar-panel members-panel" id="members" aria-labelledby="members-heading">
-      <div className="panel-heading"><h2 id="members-heading"><Users size={16} />Members <span className="count-badge">{members.length}</span></h2><span className="panel-sparkle" aria-hidden="true">✧</span></div>
+    <section className="sidebar-panel members-panel" id="members" aria-labelledby={embedded ? 'companion-members-tab' : 'members-heading'}>
+      {!embedded && <div className="panel-heading"><h2 id="members-heading"><Users size={16} />Members <span className="count-badge">{members.length}</span></h2><span className="panel-sparkle" aria-hidden="true">✧</span></div>}
       <div className={`member-list${members.length > 3 ? ' member-list--many' : ''}`}>
         {members.map(member => <div className="member-row" key={member.userId} data-user-id={member.userId}>
           <Avatar avatar={member.avatar} />
           <div className="member-details">
             <div className="member-name"><span>{member.nickname}</span>{member.userId === currentUserId && <span className="you-label">you</span>}</div>
-            {member.userId === currentUserId ? <span className={`member-status member-status--${member.status} member-status-control`}>
+            {member.userId === currentUserId && !embedded ? <span className={`member-status member-status--${member.status} member-status-control`}>
               <select aria-label="Your status" value={member.status} disabled={connection !== 'connected'} onChange={event => onStatusChange(event.target.value as PresenceStatus)}>
                 {statusOptions.map(status => <option key={status.value} value={status.value}>{status.icon} {status.label}</option>)}
               </select><ChevronDown size={11} aria-hidden="true" />
@@ -40,10 +41,10 @@ export function MembersPanel({ members, currentUserId, connection, error, status
         {!members.length && <p className="presence-empty">A quiet room. Make yourself at home.</p>}
       </div>
       {statusError && <p className="presence-status-error" role="status">{statusError}</p>}
-      {connection === 'error' && <button className="invite-button" onClick={onReconnect}>Reconnect</button>}
-      {voice && <VoiceControls voice={voice} connection={connection} />}
-      <button className="invite-button" onClick={onInvite}><Plus size={15} />Invite friends</button>
-      <p className="panel-footnote presence-connection" role="status" data-connection={connection}>{message || "there's always room for one more"}</p>
+      {!embedded && connection === 'error' && <button className="invite-button" onClick={onReconnect}>Reconnect</button>}
+      {voice && !embedded && <VoiceControls voice={voice} connection={connection} />}
+      {!embedded && <button className="invite-button" onClick={onInvite}><Plus size={15} />Invite friends</button>}
+      {!embedded && <p className="panel-footnote presence-connection" role="status" data-connection={connection}>{message || "there's always room for one more"}</p>}
     </section>
   );
 }
