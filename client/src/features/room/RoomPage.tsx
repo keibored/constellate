@@ -2,17 +2,15 @@ import { useEffect, useState } from 'react';
 import { Check, Copy, X } from 'lucide-react';
 import { Navbar } from '../../components/layout/Navbar';
 import { mockRoom } from '../../data/mockRoom';
-import { MembersPanel } from '../presence/MembersPanel';
 import { getLocalIdentity } from '../presence/localIdentity';
 import { useRoomPresence } from '../presence/useRoomPresence';
 import { JoinRoomDialog } from '../presence/JoinRoomDialog';
-import { RoomChat } from '../chat/RoomChat';
-import { ReactionsPanel } from '../reactions/ReactionsPanel';
 import { TaskBoard } from '../tasks/TaskBoard';
 import { useRoomState } from '../tasks/useRoomState';
 import { FocusTimer } from '../timer/FocusTimer';
 import { RoomInfoCard } from './RoomInfoCard';
 import { RoomScene } from './RoomScene';
+import { CompanionPanel } from './CompanionPanel';
 import { RoomSettings } from './RoomSettings';
 import { StatsView } from '../stats/StatsView';
 import { useVoiceRoom } from '../voice/useVoiceRoom';
@@ -103,21 +101,17 @@ export function RoomPage({ roomId }: { roomId: string }) {
     catch { setCopyFallback(true); }
   };
   return (
-    <div className={`app-shell${dimmed ? ' lights-dimmed' : ''}${reducedMotion ? ' reduced-motion' : ''}`}>
+    <div className={`app-shell study-workspace${dimmed ? ' lights-dimmed' : ''}${reducedMotion ? ' reduced-motion' : ''}`}>
       <a href={statsOpen ? '#stats' : '#room'} className="skip-link">Skip to study {statsOpen ? 'stats' : 'room'}</a>
       <Navbar onSettings={() => setSettingsOpen(true)} dimmed={dimmed} onToggleLights={() => setDimmed(!dimmed)} onHome={() => { void leaveRoom(); }} statsOpen={statsOpen} />
       <main className="room-layout" hidden={statsOpen}>
+        <RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} />
         <div className="room-column">
-          <RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} />
+          <FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} />
           <RoomScene members={members} />
           <TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} />
         </div>
-        <aside className="room-sidebar" aria-label="Room companions">
-          <FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} />
-          <MembersPanel voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} />
-          <RoomChat key={roomId} roomId={roomId} currentUserId={currentUserId} connection={connection} />
-          <details className="room-extras"><summary>Send encouragement</summary><ReactionsPanel key={roomId} roomId={roomId} connection={connection} /></details>
-        </aside>
+        <CompanionPanel key={roomId} roomId={roomId} voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} />
       </main>
       {statsOpen && <StatsView key={roomId} roomId={roomId} connection={connection} />}
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>

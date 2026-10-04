@@ -1,13 +1,13 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import { MessageSquare, Send } from 'lucide-react';
 import { Avatar } from '../../components/ui/Avatar';
 import type { ConnectionStatus } from '../presence/useRoomPresence';
 import { useRoomChat } from './useRoomChat';
 
-interface RoomChatProps { roomId: string; currentUserId?: string; connection: ConnectionStatus }
+interface RoomChatProps { roomId: string; currentUserId?: string; connection: ConnectionStatus; reactions?: ReactNode }
 const localTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 
-export function RoomChat({ roomId, currentUserId, connection }: RoomChatProps) {
+export function RoomChat({ roomId, currentUserId, connection, reactions }: RoomChatProps) {
   const { messages, sendMessage, sending, error, ready } = useRoomChat(roomId, connection);
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
@@ -31,7 +31,7 @@ export function RoomChat({ roomId, currentUserId, connection }: RoomChatProps) {
         const log = event.currentTarget;
         nearBottom.current = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
       }}>
-        {!messages.length && <p className="chat-empty">A quiet little corner.<br />Say hello when you're ready.</p>}
+        {!messages.length && <div className="chat-empty"><MessageSquare size={30} aria-hidden="true" /><p>A quiet little corner.</p><span>Say hello when you're ready.</span></div>}
         {messages.map(message => <div key={message.id} data-message-id={message.id} data-user-id={message.userId} className={`chat-message${message.userId === currentUserId ? ' chat-message--self' : ''}`}>
           <Avatar avatar={message.avatar} small />
           <div className="chat-message-body">
@@ -40,8 +40,9 @@ export function RoomChat({ roomId, currentUserId, connection }: RoomChatProps) {
           </div>
         </div>)}
       </div>
+      {reactions}
       <form className="chat-form" onSubmit={submit}>
-        <input aria-label="Message" placeholder="type a message…" maxLength={500} value={draft} autoComplete="off" onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault(); }} />
+        <input aria-label="Message" placeholder="Write a message…" maxLength={500} value={draft} autoComplete="off" onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault(); }} />
         <button className="chat-send" type="submit" aria-label="Send message" aria-busy={sending} disabled={!ready || sending || !draft.trim() || draft.trim().length > 500}><Send size={15} /></button>
       </form>
       <p className={`chat-note${error ? ' chat-note--error' : ''}`} role="status">{note}</p>

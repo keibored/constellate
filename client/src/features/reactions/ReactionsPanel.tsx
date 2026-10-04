@@ -16,7 +16,7 @@ function ReactionIcon({ kind }: { kind: ReactionKind }) {
   return <span className="cry-face" aria-hidden="true">😭</span>;
 }
 
-export function ReactionsPanel({ roomId, connection }: { roomId: string; connection: ConnectionStatus }) {
+export function ReactionsPanel({ roomId, connection, compact = false }: { roomId: string; connection: ConnectionStatus; compact?: boolean }) {
   const [reactions, setReactions] = useState<RoomReaction[]>([]);
   const [announcement, setAnnouncement] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export function ReactionsPanel({ roomId, connection }: { roomId: string; connect
     } catch { setError('Could not confirm that reaction. Try again after reconnecting.'); }
   };
   return (
-    <section className="sidebar-panel reactions-panel" aria-labelledby="reactions-heading">
+    <section className={`sidebar-panel reactions-panel${compact ? ' reactions-panel--compact' : ''}`} aria-labelledby="reactions-heading">
       <div className="panel-heading"><h2 id="reactions-heading"><Sparkles size={16} />Reactions</h2></div><p className="panel-description">a little nudge of encouragement</p>
       <div className="reaction-buttons">{reactionOptions.map(({ kind, label }) => <button className={`reaction-button reaction-button--${kind}`} key={kind} aria-label={label} title={label} disabled={connection !== 'connected'} onClick={() => { void send(kind); }}><ReactionIcon kind={kind} /></button>)}</div>
       <div className="recent-label">Recent<span /></div>
