@@ -11,7 +11,6 @@ import { ReactionsPanel } from '../reactions/ReactionsPanel';
 import { TaskBoard } from '../tasks/TaskBoard';
 import { useRoomState } from '../tasks/useRoomState';
 import { FocusTimer } from '../timer/FocusTimer';
-import { EncouragementCard } from './EncouragementCard';
 import { RoomInfoCard } from './RoomInfoCard';
 import { RoomScene } from './RoomScene';
 import { RoomSettings } from './RoomSettings';
@@ -108,11 +107,17 @@ export function RoomPage({ roomId }: { roomId: string }) {
       <a href={statsOpen ? '#stats' : '#room'} className="skip-link">Skip to study {statsOpen ? 'stats' : 'room'}</a>
       <Navbar onSettings={() => setSettingsOpen(true)} dimmed={dimmed} onToggleLights={() => setDimmed(!dimmed)} onHome={() => { void leaveRoom(); }} statsOpen={statsOpen} />
       <main className="room-layout" hidden={statsOpen}>
-        <div className="room-column"><div className="space-heading"><span><span aria-hidden="true">✧</span> A SPACE TO FOCUS, TOGETHER</span><span className="space-heading-right">take a breath. you're here.</span></div>
-          <RoomScene members={members}><RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} /><FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} /><TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} /></RoomScene>
-          <div className="room-bottom-caption"><span><span className="status-dot status-dot--coding" />a little company goes a long way</span><span>same stars, different desks <span aria-hidden="true">✦</span></span></div>
+        <div className="room-column">
+          <RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} />
+          <RoomScene members={members} />
+          <TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} />
         </div>
-        <aside className="room-sidebar" aria-label="Room companions"><MembersPanel voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} /><RoomChat key={roomId} roomId={roomId} currentUserId={currentUserId} connection={connection} /><ReactionsPanel key={roomId} roomId={roomId} connection={connection} /><EncouragementCard /></aside>
+        <aside className="room-sidebar" aria-label="Room companions">
+          <FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} />
+          <MembersPanel voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} />
+          <RoomChat key={roomId} roomId={roomId} currentUserId={currentUserId} connection={connection} />
+          <details className="room-extras"><summary>Send encouragement</summary><ReactionsPanel key={roomId} roomId={roomId} connection={connection} /></details>
+        </aside>
       </main>
       {statsOpen && <StatsView key={roomId} roomId={roomId} connection={connection} />}
       <footer className="app-footer"><span>made for the things you're working toward.</span><span>stay a while <span aria-hidden="true">☾</span></span></footer>

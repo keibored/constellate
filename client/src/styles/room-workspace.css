@@ -1,0 +1,95 @@
+/* Room controls live in normal flow, leaving the illustration free to breathe. */
+.app-shell .room-navbar { height: 72px; min-height: 72px; padding: 0 32px; gap: 28px; }
+.room-navbar .brand { min-width: 0; }
+.room-navbar .brand-name { font-size: 21px; }
+.room-navbar .brand-star { font-size: 32px; }
+.room-navbar .brand-tagline { font-size: 10px; }
+.room-navbar .nav-links { gap: 4px; }
+.room-navbar .nav-link { min-height: 40px; font-size: 13px; padding: 8px 14px; }
+.room-navbar .nav-end { gap: 8px; }
+.room-navbar .nav-end .icon-button { width: 40px; height: 40px; padding: 8px; border: 0; border-radius: 8px; }
+.app-shell .room-layout { max-width: 1600px; padding: 24px 32px; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+.room-layout[hidden] { display: none; }
+.room-layout .room-column, .room-layout .room-sidebar { display: flex; flex-direction: column; gap: 16px; padding-top: 0; min-width: 0; }
+.room-layout .room-info { position: static; width: 100%; padding: 0 0 4px; background: none; border: 0; box-shadow: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.room-info-main { min-width: 0; flex: 1; }
+.room-title-row { display: flex; align-items: center; gap: 10px; }
+.room-info .eyebrow { font-size: 9px; margin-bottom: 6px; letter-spacing: 1.3px; }
+.room-layout .room-info h1 { font-size: 24px; letter-spacing: -.7px; }
+.room-info .edit-button { flex-shrink: 0; margin-left: 0; width: 32px; height: 32px; }
+.room-info .room-code { gap: 12px; font-size: 11px; margin-top: 6px; }
+.room-code > span:first-child { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-member-count { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--muted); }
+.room-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.room-actions .icon-button { display: flex; gap: 7px; width: auto; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; }
+.room-actions .icon-button:first-child { background: #493644; color: #ead4e7; }
+.room-layout .room-scene { min-height: 420px; height: clamp(420px, 54vw, 580px); max-height: none; padding-top: 0; border: 1px solid #96767f; box-shadow: none; border-radius: 12px; }
+.room-layout .task-board { position: static; width: 100%; margin: 0; padding: 20px; border-color: var(--border); border-radius: 10px; background: var(--panel); box-shadow: none; }
+.room-layout .quest-list { max-height: 240px; }
+.room-layout .quest-row { min-height: 40px; }
+.room-layout .quest-label { font-size: 13px; }
+.room-layout .quest-empty, .room-layout .quest-error { font-size: 12px; margin: 14px 0; }
+.room-layout .add-task-button { min-height: 32px; font-size: 12px; }
+.room-sidebar .focus-timer { position: static; transform: none; width: 100%; padding: 20px; border-color: var(--border); background: var(--panel); box-shadow: none; border-radius: 10px; }
+.room-sidebar .timer-digits { font-size: 56px; line-height: 1.4; }
+.room-sidebar .timer-start { width: 148px; min-height: 40px; font-size: 13px; }
+.room-sidebar .timer-controls .icon-button { width: 36px; height: 40px; }
+.room-sidebar .timer-note { font-size: 11px; letter-spacing: 0; }
+.room-sidebar .sidebar-panel { padding: 18px; border-radius: 10px; box-shadow: none; background: var(--panel); }
+.room-sidebar .chat-log { height: 160px; }
+.room-sidebar .chat-empty { padding: 40px 8px; font-size: 12px; }
+.room-sidebar .chat-form input { min-height: 40px; font-size: 12px; }
+.room-sidebar .chat-message-content { font-size: 12px; }
+.room-extras { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.room-extras summary { cursor: pointer; padding: 14px 18px; font-size: 12px; color: #d8c5e2; }
+.room-extras summary:focus-visible { outline: 2px solid var(--pink); outline-offset: 3px; }
+.room-extras .sidebar-panel { border: 0; padding-top: 4px; }
+.room-sidebar .member-list { display: flex; flex-direction: column; margin: 10px 0 14px; }
+.room-sidebar .member-row { flex-direction: row; gap: 10px; padding: 8px 0; }
+.room-sidebar .member-details { text-align: left; min-width: 0; }
+.room-sidebar .member-name { justify-content: flex-start; }
+.room-sidebar .member-name .you-label { display: inline; }
+@media (max-width: 1100px) {
+  .app-shell .room-layout { padding: 20px; grid-template-columns: minmax(0, 1fr) 290px; gap: 20px; }
+  .room-layout .room-scene { min-height: 460px; height: 460px; }
+  .room-layout .desk-status { display: none; }
+}
+@media (max-width: 820px) {
+  .app-shell .room-navbar { padding: 0 20px; gap: 16px; }
+  .app-shell .room-layout { grid-template-columns: 1fr; }
+  .room-layout .room-sidebar { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+  .room-sidebar .room-chat { grid-column: 1 / -1; }
+  .room-sidebar .room-extras { grid-column: 1 / -1; }
+  .room-layout .room-scene { min-height: 0; height: 440px; }
+}
+@media (max-width: 720px) {
+  .app-shell .room-navbar { flex-wrap: wrap; min-height: 68px; height: auto; padding: 12px 16px; gap: 12px; }
+  .room-navbar .nav-end { order: 0; }
+  .room-navbar .nav-links { order: 1; width: 100%; padding: 0; justify-content: flex-start; }
+  .room-navbar .nav-link { flex: 1; justify-content: center; }
+  .app-shell .room-layout { padding: 20px 16px; gap: 20px; }
+  .room-layout .room-info { flex-wrap: wrap; gap: 12px; }
+  .room-layout .room-info h1 { font-size: 22px; }
+  .room-layout .room-info .eyebrow { font-size: 9px; }
+  .room-layout .room-code { font-size: 11px; }
+  .room-layout .room-decor { height: 100%; }
+  .room-layout .desk-stations { top: 56%; height: 180px; }
+  .room-layout .room-scene { height: 360px; padding-top: 0; }
+  .room-layout .night-window { top: 20%; }
+  .room-layout .wall-shelf { top: 28%; }
+  .room-layout .poster-kind { top: 38%; }
+  .room-layout .bookcase { top: 28%; height: 42%; }
+  .room-layout .floor-plant { top: 46%; }
+  .room-layout .dreams-poster { top: 15%; }
+  .room-layout .task-board { padding: 16px; }
+  .room-sidebar .focus-timer { padding: 18px; }
+}
+@media (max-width: 540px) {
+  .room-layout .room-sidebar { display: flex; }
+  .room-actions { width: 100%; }
+  .room-actions .icon-button { justify-content: center; }
+  .room-actions .icon-button:first-child { flex: 1; }
+  .room-layout .room-scene { height: 320px; }
+  .room-layout .room-info-main { width: 100%; }
+  .room-sidebar .chat-log { height: 200px; }
+}
