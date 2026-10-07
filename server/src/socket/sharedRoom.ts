@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { ClientToServerEvents, ServerToClientEvents, RoomResult, RoomError } from '../../../shared/presence.js';
+import { parseRadioRequest, radioSnapshot } from './roomRadio.js';
 import { parseChatSend, parseJoin, parseStatusUpdate, readRoomId } from './validation.js';
 import { RoomNotFoundError, type RoomRepository } from '../repositories/roomRepository.js';
 import { attachPersistentRoomHandlers } from './persistentRoom.js';
@@ -47,6 +48,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
   runtime.onChange = (result, now) => {
     const room = result.room;
     if (result.presenceChanged) io.to(channel(room.roomId)).emit('presence:list', { roomId: room.roomId, members: members(room), epoch: room.epoch, revision: room.revision });
+    if (result.radioChanged) io.to(channel(room.roomId)).emit('radio:state', radioSnapshot(room.radio, room.roomId, room.epoch, room.revision, now));
     if (result.timerChanged) io.to(channel(room.roomId)).emit('timer:state', timerSnapshot(room, now));
     if (result.message) io.to(channel(room.roomId)).emit('chat:message', result.message);
     if (result.reaction) io.to(channel(room.roomId)).emit('reaction:new', result.reaction);
@@ -145,6 +147,7 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
         if (!socket.connected) { await runtime.act(join.roomId, { kind: 'leave', guestId: join.user.id, socketId: socket.id, immediate: false }); return; }
         socket.data.membership = { roomId: join.roomId, userId: join.user.id };
         socket.emit('presence:list', { roomId: join.roomId, members: members(result.room), epoch: result.room.epoch, revision: result.room.revision });
+        socket.emit('radio:state', radioSnapshot(result.room.radio, join.roomId, result.room.epoch, result.room.revision, result.now));
         socket.emit('timer:state', timerSnapshot(result.room, result.now));
         socket.emit('chat:history', { roomId: join.roomId, messages: result.room.messages });
         socket.emit('reaction:history', { roomId: join.roomId, reactions: result.room.reactions });
@@ -178,6 +181,18 @@ export function attachSharedRoomSockets(httpServer: HttpServer, allowedOrigins: 
       const kind = (payload as { kind?: unknown } | null)?.kind;
       if (!roomId || (kind !== 'coffee' && kind !== 'sparkle' && kind !== 'heart' && kind !== 'cry')) { fail('Choose a valid reaction for this room.', acknowledge, 'reaction:send'); return; }
       schedule(() => perform(roomId, { kind: 'reaction', guestId: socket.data.membership?.userId ?? '', socketId: socket.id, reaction: kind }, acknowledge, 'reaction:send'), acknowledge, 'reaction:send');
+    });
+    socket.on('radio:command', (payload: unknown, acknowledge) => {
+      const request = parseRadioRequest(payload);
+      if (!request) { if (typeof acknowledge === 'function') acknowledge({ ok: false, error: 'Choose a valid room radio action.' }); return; }
+      schedule(async () => {
+        const current = socket.data.membership;
+        if (current?.roomId !== request.roomId) { if (typeof acknowledge === 'function') acknowledge({ ok: false, error: 'Join this room first.' }); return; }
+        const result = await runtime.act(request.roomId, { kind: 'radio', guestId: current.userId, socketId: socket.id, request });
+        if (result.error) { if (typeof acknowledge === 'function') acknowledge({ ok: false, error: result.error }); return; }
+        socket.emit('radio:state', radioSnapshot(result.room.radio, request.roomId, result.room.epoch, result.room.revision, result.now));
+        if (typeof acknowledge === 'function') acknowledge({ ok: true });
+      }, acknowledge);
     });
     socket.on('stats:access', (payload: unknown, acknowledge) => {
       if (typeof acknowledge !== 'function') return;

@@ -2,6 +2,8 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, RoomResult, RoomError } from '../../../shared/presence.js';
 import type { TimerAction } from '../../../shared/timer.js';
+import { LocalRadio } from './localRadio.js';
+import { parseRadioRequest } from './roomRadio.js';
 import { RoomPresence } from './roomPresence.js';
 import { RoomTimer } from './roomTimer.js';
 import { RoomChat } from './roomChat.js';
@@ -25,6 +27,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
     maxHttpBufferSize: 16_384,
   });
   const broadcastMembers = (roomId: string) => {
+    radio.reconcile(roomId);
     studies?.members(roomId, presence.list(roomId));
     io.to(channel(roomId)).emit('presence:list', { roomId, members: presence.list(roomId) });
   };
@@ -33,6 +36,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
   }, graceMs, broadcastMembers);
   const timers = new RoomTimer(state => io.to(channel(state.roomId)).emit('timer:state', state), event => studies?.timer(event));
   const chat = new RoomChat();
+  const radio = new LocalRadio(roomId => presence.list(roomId), state => io.to(channel(state.roomId)).emit('radio:state', state));
 
   io.on('connection', socket => {
     let joinGeneration = 0;
@@ -82,6 +86,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       const { member, changed, joined } = presence.join(join.roomId, join.user, socket.id, join.status);
       if (changed) broadcastMembers(join.roomId);
       else socket.emit('presence:list', { roomId: join.roomId, members: presence.list(join.roomId) });
+      socket.emit('radio:state', radio.snapshot(join.roomId));
       socket.emit('timer:state', timers.current(join.roomId));
       socket.emit('chat:history', { roomId: join.roomId, messages: chat.history(join.roomId) });
       socket.emit('room:state', saved);
@@ -110,6 +115,15 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
       // Include the sender and their other tabs so every view uses server state.
       io.to(channel(update.roomId)).emit('presence:updated', { roomId: update.roomId, member });
       if (typeof acknowledge === 'function') acknowledge({ ok: true });
+    });
+
+    socket.on('radio:command', (payload: unknown, acknowledge) => {
+      const request = parseRadioRequest(payload);
+      const current = socket.data.membership;
+      const member = request && current?.roomId === request.roomId ? presence.memberForSocket(request.roomId, current.userId, socket.id) : null;
+      const error = !request || !member ? 'Join this room and choose a valid radio action.' : radio.command(request, member);
+      if (!error && request) socket.emit('radio:state', radio.snapshot(request.roomId));
+      if (typeof acknowledge === 'function') acknowledge(error ? { ok: false, error } : { ok: true });
     });
 
     socket.on('stats:access', async (payload: unknown, acknowledge) => {
@@ -168,7 +182,7 @@ export function attachRoomSockets(httpServer: HttpServer, allowedOrigins: string
 
   httpServer.on('close', () => {
     void studies?.close().catch(error => console.error(`[study] Final checkpoint failed (${databaseErrorCode(error)}).`));
-    presence.dispose(); timers.dispose(); chat.dispose();
+    presence.dispose(); timers.dispose(); chat.dispose(); radio.dispose();
   });
   return { io, presence, timers, chat };
 }
