@@ -61,7 +61,7 @@ try {
   });
   const page = async context => { const result = await context.newPage(); result.setDefaultTimeout(15000); result.on('pageerror', error => report.errors.push(error.message)); return result; };
   const a = await page(contexts[0]), b = await page(contexts[1]), c = await page(contexts[2]), d = await page(contexts[3]);
-  const ready = p => p.locator('[data-connection="connected"]').waitFor();
+  const ready = p => p.locator('[data-connection="connected"]').waitFor({ state: 'attached' });
   async function join(p, origin, nickname, room = 'voice-study') {
     await p.goto(`${origin}/r/${room}`);
     const joinNickname = p.locator('#join-nickname');
@@ -125,7 +125,7 @@ try {
   await join(d, nodes[1].origin, 'Separate Guest', 'separate-voice'); await voice(d);
   assert.equal((await state(d)).active, 0);
   pass('three guests form a two-peer-per-browser mesh; another room has no peer or audio leakage');
-  await a.getByRole('button', { name: 'Start', exact: true }).click();
+  await a.getByRole('button', { name: 'Start focus', exact: true }).click();
   await a.getByRole('button', { name: 'Add task', exact: true }).click(); await a.getByLabel('New task', { exact: true }).fill('Study with company'); await a.locator('.add-task-form').getByRole('button', { name: 'Add', exact: true }).click();
   await b.getByLabel('Study with company', { exact: true }).check();
   await b.getByLabel('Message', { exact: true }).fill('Voice and focus'); await b.getByRole('button', { name: 'Send message', exact: true }).click();

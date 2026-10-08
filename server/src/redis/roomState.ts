@@ -1,3 +1,6 @@
+import type { RadioState, RadioRequest } from '../../../shared/radio.js';
+import { freshRadio, reconcileRadio, changeRadio, MAX_RADIO_QUEUE } from '../socket/roomRadio.js';
+import { radioTrack } from '../../../shared/radioCatalog.js';
 import { randomUUID } from 'node:crypto';
 import type { MemberPresence, PresenceStatus, RoomUser } from '../../../shared/presence.js';
 import type { RoomTimerState, TimerAction, TimerStatePayload } from '../../../shared/timer.js';
@@ -22,6 +25,7 @@ export interface RuntimeRoom {
   messages: ChatMessage[]; reactions: RoomReaction[];
   rates: Record<string, number[]>;
   voice: Record<string, VoiceOwner>;
+  radio: RadioState;
 }
 export type RuntimeAction =
   | { kind: 'join'; user: RoomUser; socketId: string; owner: string; status?: PresenceStatus }
@@ -31,12 +35,13 @@ export type RuntimeAction =
   | { kind: 'timer'; guestId: string; socketId: string; action: TimerAction }
   | { kind: 'chat'; guestId: string; socketId: string; content: string }
   | { kind: 'reaction'; guestId: string; socketId: string; reaction: ReactionKind }
+  | { kind: 'radio'; guestId: string; socketId: string; request: RadioRequest }
   | { kind: 'member'; guestId: string; socketId: string }
   | { kind: 'voiceJoin'; guestId: string; socketId: string; clientId: string; muted: boolean }
   | { kind: 'voiceLeave'; guestId: string; socketId: string; clientId: string }
   | { kind: 'voiceMute'; guestId: string; socketId: string; sessionId: string; muted: boolean }
   | { kind: 'checkpoint' | 'sweep' };
-export interface RuntimeResult { room: RuntimeRoom; now: number; presenceChanged: boolean; timerChanged: boolean; voiceChanged: boolean; message?: ChatMessage; reaction?: RoomReaction; member?: MemberPresence; error?: string }
+export interface RuntimeResult { room: RuntimeRoom; now: number; presenceChanged: boolean; timerChanged: boolean; voiceChanged: boolean; radioChanged?: boolean; message?: ChatMessage; reaction?: RoomReaction; member?: MemberPresence; error?: string }
 
 const own = <T>(object: Record<string, T>, key: string): T | undefined => Object.prototype.hasOwnProperty.call(object, key) ? object[key] : undefined;
 const put = <T>(object: Record<string, T>, key: string, value: T) => { Object.defineProperty(object, key, { value, enumerable: true, configurable: true, writable: true }); };
@@ -46,7 +51,7 @@ function initialTimer(revision = 0): RoomTimerState {
 function enqueue(room: RuntimeRoom, event: StudyWrite) { room.pending.push({ id: randomUUID(), event }); }
 export function freshRoom(roomId: string, now: number): RuntimeRoom {
   const room: RuntimeRoom = { schema: 1, epoch: randomUUID(), revision: 0, roomId, lastActive: now, presence: {}, statuses: {}, timer: initialTimer(),
-    study: { gathering: null, visits: {}, cycle: null, checkpointAt: now }, pending: [], messages: [], reactions: [], rates: {}, voice: {} };
+    study: { gathering: null, visits: {}, cycle: null, checkpointAt: now }, pending: [], messages: [], reactions: [], rates: {}, voice: {}, radio: freshRadio() };
   // Redis loss/expiry must not leave the previous generation's SQL visits open.
   enqueue(room, { kind: 'recoverRoom', roomId, generation: room.epoch });
   return room;
@@ -130,6 +135,7 @@ export function applyRoomAction(room: RuntimeRoom, action: RuntimeAction, now: n
     const guest = own(room.presence, guestId);
     if (!guest || !own(guest.sockets, owner.socketId)) { delete room.voice[guestId]; result.voiceChanged = true; }
   }
+  result.radioChanged = reconcileRadio(room.radio, members(room), now);
   if (action.kind === 'join') {
     settleFocus(room, now);
     let guest = own(room.presence, action.user.id);
@@ -169,7 +175,16 @@ export function applyRoomAction(room: RuntimeRoom, action: RuntimeAction, now: n
     if (!guest || !own(guest.sockets, action.socketId)) result.error = 'Rejoin this room before changing its state.';
     else {
       result.member = guest.member;
-      if (action.kind === 'voiceJoin') {
+      if (action.kind === 'radio') {
+        const key = `radio:${action.guestId}`;
+        const recent = (own(room.rates, key) ?? []).filter(at => at > now - 3000);
+        if (action.request.command !== 'sync' && recent.length >= 5) result.error = 'A little too fast. Wait a few seconds before changing the radio.';
+        else {
+          if (action.request.command !== 'sync') put(room.rates, key, [...recent, now]);
+          result.error = changeRadio(room.radio, action.request, guest.member, now) ?? undefined;
+          if (!result.error && action.request.command !== 'sync') result.radioChanged = true;
+        }
+      } else if (action.kind === 'voiceJoin') {
         const current = own(room.voice, action.guestId);
         if (current && current.clientId !== action.clientId) result.error = "You're already connected to voice in another tab.";
         else if (!current && Object.keys(room.voice).length >= MAX_VOICE_PARTICIPANTS) result.error = 'Voice is full. This small room supports up to six people in voice.';
@@ -218,7 +233,10 @@ export function applyRoomAction(room: RuntimeRoom, action: RuntimeAction, now: n
       }
     }
   }
-  if (result.presenceChanged) seat(room);
+  if (result.presenceChanged) {
+    seat(room);
+    result.radioChanged = reconcileRadio(room.radio, members(room), now) || result.radioChanged;
+  }
   if (result.presenceChanged || result.timerChanged || action.kind === 'checkpoint' || (room.study.gathering && now >= room.study.checkpointAt + timing.checkpoint)) checkpoint(room, now);
   for (const [id, value] of Object.entries(room.statuses)) if (!own(room.presence, id) && value.at < now - timing.idle) delete room.statuses[id];
   for (const [key, values] of Object.entries(room.rates)) if (values.every(at => at <= now - 3000)) delete room.rates[key];
@@ -227,6 +245,7 @@ export function applyRoomAction(room: RuntimeRoom, action: RuntimeAction, now: n
 }
 export function nextRoomDue(room: RuntimeRoom, now: number, timing = RUNTIME_TIMING) {
   const deadlines = [room.study.gathering ? room.study.checkpointAt + timing.checkpoint : room.lastActive + timing.idle];
+  if (room.radio.playing && room.radio.startedAt !== null) deadlines.push(room.radio.startedAt + radioTrack(room.radio.trackId)!.durationMs - room.radio.positionMs);
   if (room.pending.length) deadlines.push(now + timing.sweep);
   if (room.timer.status === 'running') deadlines.push(room.timer.endsAt!);
   for (const guest of Object.values(room.presence)) {
@@ -241,6 +260,7 @@ export function parseRoom(value: string, roomId: string): RuntimeRoom {
   const room = JSON.parse(value) as RuntimeRoom;
   const record = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
   const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  if (room && room.radio === undefined) room.radio = freshRadio();
   if (room && room.voice === undefined) room.voice = {}; // Additive upgrade of existing ephemeral rooms.
   if (room?.schema !== 1 || room.roomId !== roomId || typeof room.epoch !== 'string' || !Number.isSafeInteger(room.revision) || !finite(room.lastActive)
     || !record(room.presence) || !record(room.statuses) || !record(room.study) || !record(room.study.visits)
@@ -256,6 +276,11 @@ export function parseRoom(value: string, roomId: string): RuntimeRoom {
   for (const visit of Object.values(room.study.visits)) if (typeof visit.id !== 'string' || (visit.focusStart !== null && !finite(visit.focusStart))) throw new Error('Invalid active study visit.');
   if (room.study.cycle !== null && (typeof room.study.cycle.id !== 'string' || !record(room.study.cycle.contributors))) throw new Error('Invalid timer cycle.');
   for (const item of room.pending) if (typeof item.id !== 'string' || !record(item.event) || typeof item.event.kind !== 'string') throw new Error('Invalid pending study event.');
+  if (!record(room.radio) || !radioTrack(room.radio.trackId) || typeof room.radio.playing !== 'boolean'
+    || (room.radio.hostId !== null && typeof room.radio.hostId !== 'string') || !finite(room.radio.positionMs) || room.radio.positionMs < 0
+    || (room.radio.startedAt !== null && !finite(room.radio.startedAt)) || (room.radio.playing && room.radio.startedAt === null)
+    || !Array.isArray(room.radio.queue) || room.radio.queue.length > MAX_RADIO_QUEUE
+    || room.radio.queue.some(entry => !record(entry) || !radioTrack(entry.trackId) || typeof entry.id !== 'string' || typeof entry.nickname !== 'string')) throw new Error('Invalid room radio state.');
   for (const owner of Object.values(room.voice)) if (!record(owner) || typeof owner.socketId !== 'string' || typeof owner.clientId !== 'string' || typeof owner.sessionId !== 'string' || typeof owner.muted !== 'boolean') throw new Error('Invalid voice presence.');
   return room;
 }

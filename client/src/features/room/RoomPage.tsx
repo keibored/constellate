@@ -9,7 +9,7 @@ import { TaskBoard } from '../tasks/TaskBoard';
 import { useRoomState } from '../tasks/useRoomState';
 import { FocusTimer } from '../timer/FocusTimer';
 import { RoomInfoCard } from './RoomInfoCard';
-import { RoomScene } from './RoomScene';
+import { RoomRadioArea } from '../radio/RoomRadio';
 import { CompanionPanel } from './CompanionPanel';
 import { RoomSettings } from './RoomSettings';
 import { StatsView } from '../stats/StatsView';
@@ -108,7 +108,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
         <RoomInfoCard room={room} onRename={savedRoom.rename} canRename={savedRoom.ready && !savedRoom.saving} error={savedRoom.error} onInvite={copyLink} copied={copied} onLeave={() => { void leaveRoom(); }} leaving={leaving} />
         <div className="room-column">
           <FocusTimer roomId={roomId} connection={connection} onSettings={() => setSettingsOpen(true)} />
-          <RoomScene members={members} />
+          <RoomRadioArea roomId={roomId} connection={connection} currentUserId={currentUserId} members={members} />
           <TaskBoard key={roomId} tasks={savedRoom.state?.tasks ?? []} ready={savedRoom.ready} saving={savedRoom.saving} error={savedRoom.error} onCreate={savedRoom.createTask} onToggle={savedRoom.toggleTask} onDelete={savedRoom.deleteTask} onSync={savedRoom.sync} />
         </div>
         <CompanionPanel key={roomId} roomId={roomId} voice={voice} members={members} currentUserId={currentUserId} connection={connection} error={error} onReconnect={reconnect} statusError={statusError} onStatusChange={updateStatus} onInvite={copyLink} />

@@ -20,7 +20,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test test/*.test.ts && tsx --tsconfig ../client/tsconfig.app.json --test test/*.test.tsx"
+    "test": "node --import tsx --test test/*.test.ts && tsx --tsconfig ../client/tsconfig.app.json --test test/*.test.tsx",
+    "test:radio:browser": "node --import tsx test/browser/radio.mjs"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",

@@ -87,7 +87,7 @@ export class RedisRoomRuntime {
       else if (action.kind === 'leave') this.sockets.delete(action.socketId);
       // A periodic snapshot also repairs a missed Pub/Sub update after a node
       // died between its successful Redis commit and its broadcast.
-      this.onChange?.(action.kind === 'heartbeat' ? { ...result, presenceChanged: true, timerChanged: true, voiceChanged: true } : result, loaded.now);
+      this.onChange?.(action.kind === 'heartbeat' ? { ...result, presenceChanged: true, timerChanged: true, voiceChanged: true, radioChanged: true } : result, loaded.now);
       if (room.pending.length) void this.flush(roomId).catch(error => this.report(error));
       return result;
     }
