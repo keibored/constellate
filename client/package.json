@@ -14,7 +14,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^1.52.0",
     "postcss": "^8.4.49",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
