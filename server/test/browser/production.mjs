@@ -179,7 +179,7 @@ try {
     window.RTCPeerConnection = class extends Original { constructor(config) { super(config); window.__productionTest.pcs.push(this); } };
   });
   const pages = await Promise.all(contexts.map(context => context.newPage()));
-  const connected = page => page.locator('[data-connection="connected"]').waitFor({ timeout: 60000 });
+  const connected = page => page.locator('[data-connection="connected"]').waitFor({ state: 'attached', timeout: 60000 });
   for (const [i, page] of pages.entries()) {
     // Put the second guest on another node to exercise Redis fanout over WSS.
     if (!remote && i === 1) targetPort = nodes[1].port;
@@ -235,7 +235,7 @@ try {
   for (const page of pages) { await page.getByRole('button', { name: 'Join Voice', exact: true }).click(); await page.locator('[data-voice-state="joined"]').waitFor(); }
   await until(async () => (await Promise.all(pages.map(state))).every(s => s.peers === 1 && s.energy > 0), 'HTTPS bidirectional synthetic audio');
   pass('explicit Join Voice obtains a synthetic microphone stream over HTTPS with bidirectional decoded WebRTC audio');
-  await a.getByRole('button', { name: 'Start', exact: true }).click();
+  await a.getByRole('button', { name: 'Start focus', exact: true }).click();
   await a.getByRole('button', { name: 'Add task', exact: true }).click();
   await a.getByLabel('New task', { exact: true }).fill(`Deploy task ${runId}`);
   await a.locator('.add-task-form').getByRole('button', { name: 'Add', exact: true }).click();

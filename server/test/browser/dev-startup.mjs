@@ -88,7 +88,7 @@ try {
     await page.goto(`${frontend}/r/startup-check`);
     await page.locator('#join-nickname').fill(index ? 'Startup Mika' : 'Startup Kei');
     await page.getByRole('button', { name: 'Join room', exact: true }).click();
-    await page.locator('[data-connection="connected"]').waitFor();
+    await page.locator('[data-connection="connected"]').waitFor({ state: 'attached' });
     await page.evaluate(async () => {
       const { roomSocket } = await import('/src/services/socket.ts');
       roomSocket.on('timer:state', state => { window.__devTest.timer = state; });
@@ -107,7 +107,7 @@ try {
   await a.locator('.add-task-form').getByRole('button', { name: 'Add', exact: true }).click();
   await b.getByLabel('Verify startup', { exact: true }).check(); await until(() => a.getByLabel('Verify startup', { exact: true }).isChecked(), 'shared task completion');
   pass('TEST 4: chat, reactions and task changes synchronize');
-  await a.getByRole('button', { name: 'Start', exact: true }).click();
+  await a.getByRole('button', { name: 'Start focus', exact: true }).click();
   await until(async () => (await Promise.all(pages.map(page => page.evaluate(() => window.__devTest.timer?.status)))).every(status => status === 'running'), 'shared timer starts');
   const deadline = await a.evaluate(() => window.__devTest.timer.endsAt);
   assert.equal(await b.evaluate(() => window.__devTest.timer.endsAt), deadline);
@@ -123,7 +123,7 @@ try {
   for (const page of pages) await page.locator('[data-connection="reconnecting"]').waitFor();
   pass('TEST 7: intentional backend stop shows client reconnecting (proxy refusal during the stop is expected and remains visible)');
   await delay(1200); app.child.stdin.write('\n'); // concurrently routes Enter to the existing tsx watcher, no second server.
-  for (const page of pages) await page.locator('[data-connection="connected"]').waitFor();
+  for (const page of pages) await page.locator('[data-connection="connected"]').waitFor({ state: 'attached' });
   await until(twoMembers, 'reconnect without duplicate guests'); await until(mesh, 'voice restores without duplicate peers');
   for (const page of pages) {
     assert.equal(await page.evaluate(() => window.__devTest.mediaRequests), 1);
